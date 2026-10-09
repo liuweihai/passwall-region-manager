@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bypass Failover v0.3.0-beta13 (OpenWrt 24.10 / fw4) - IPv4 only.
+# Bypass Failover v0.3.0-rc1 (OpenWrt 24.10 / fw4) - IPv4 only.
 # Installed ONLY on the primary OpenWrt. Disabled by default.
 set -u
 CFG=/etc/config/bypass_failover
@@ -35,13 +35,43 @@ safe_test_resources() {
  [ ! -f "$FULL_OWNED" ] &&
  ! nft list table inet "$TEST_NFT" >/dev/null 2>&1 &&
  ! ip -4 rule show | grep -q '^10200:' &&
- [ -z "$(ip -4 route show table "$TEST_TABLE" 2>/dev/null)" ]
+ [ -z "$(ip -4 route show table "$TEST_TABLE" 2>/dev/null)" ] &&
+ ! nft list table inet bypass_failover_dryrun >/dev/null 2>&1 &&
+ ! ip -4 rule show | grep -q '^10209:' &&
+ [ -z "$(ip -4 route show table 209 2>/dev/null)" ]
 }
+safe_test_cleanup() {
+ # The dry-run uses its own unique table, mark and priority.
+ # The nft chain has no hooks, so no client can match it.
+ [ -d "$SAFE_TEST_DIR" ] || return 0
+ if [ -f "$SAFE_TEST_DIR/owned" ]; then
+  nft delete table inet bypass_failover_dryrun 2>/dev/null || true
+  ip -4 rule del priority 10209 fwmark 0x42fe table 209 2>/dev/null || true
+  ip -4 route flush table 209 2>/dev/null || true
+ fi
+}
+safe_test_install() {
+ # Route table 209 is never selected by normal traffic; fwmark 0x42fe
+ # is not set by any hook. No live traffic is rerouted.
+ safe_test_resources || return 1
+ : > "$SAFE_TEST_DIR/owned"
+ ip -4 route add unreachable default table 209 || return 1
+ ip -4 rule add priority 10209 fwmark 0x42fe table 209 || return 1
+ nft -f - <<'DRYRUN_NFT'
+table inet bypass_failover_dryrun {
+ chain inspection_only {
+  counter
+ }
+}
+DRYRUN_NFT
+}
+
 safe_test_finish() {
  expected=$1
  [ -d "$SAFE_TEST_DIR" ] || return 0
  [ "$(cat "$SAFE_TEST_DIR/deadline" 2>/dev/null)" = "$expected" ] || return 0
- rm -f "$SAFE_TEST_DIR/deadline" "$SAFE_TEST_DIR/pid"
+ safe_test_cleanup
+ rm -f "$SAFE_TEST_DIR/deadline" "$SAFE_TEST_DIR/pid" "$SAFE_TEST_DIR/owned"
  rmdir "$SAFE_TEST_DIR" 2>/dev/null || true
  if safe_test_resources; then
   printf 'passed\n' > "$SAFE_TEST_LAST"
@@ -67,9 +97,16 @@ safe_test_start() {
  mkdir "$SAFE_TEST_DIR" || return 1
  deadline=$(( $(date +%s) + 60 ))
  printf '%s\n' "$deadline" > "$SAFE_TEST_DIR/deadline"
- printf 'running\n' > "$SAFE_TEST_LAST"
+ if ! safe_test_install; then
+  safe_test_cleanup
+  rm -f "$SAFE_TEST_DIR/deadline" "$SAFE_TEST_DIR/owned"
+  rmdir "$SAFE_TEST_DIR" 2>/dev/null || true
+  echo 'Cannot install isolated rehearsal rules' >&2
+  return 1
+ fi
+ printf 'running\\n' > "$SAFE_TEST_LAST"
  ( "$0" safe-test-worker "$deadline" </dev/null >/dev/null 2>&1 & )
- say "安全回滚测试启动：60 秒倒计时，截止时间戳=$deadline；不创建 nft、策略路由、SNAT，也不改变客户端网络"
+ say "安全回滚测试启动：60 秒倒计时，截止时间戳=$deadline；仅创建无 hook 的隔离 nft 表和不匹配真实流量的策略路由；不改变客户端网络"
  echo started
 }
 safe_test_status() {
