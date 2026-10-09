@@ -33,6 +33,16 @@ echo '升级完成'
 
 脚本不会覆盖已有 `/etc/passwall-region-manager/regions.conf`。升级后使用 `passwall-region-manager help`、`scan`、`verify US` 测试。不要在生产旁路由执行 `apply`。
 
+## 独立 LuCI 节点管理页面（开发预览）
+
+路径：`luci-app-passwall-region-manager/`，仅安装在运行 PassWall 的 **192.168.31.2**；不安装在小米主路由。网页入口：**服务 → 地区节点管理**。
+
+功能：候选节点扫描、缓存状态、分流预览、选择国家启动独立验证、约每三秒刷新日志及完成计数。不会写入 PassWall 分流规则，也不修改 DHCP、DNS 和默认网关。
+
+源码安装脚本在 `luci-app-passwall-region-manager/install.sh`；网页端尚未在实机验证，首次安装应在能通过 SSH 回滚的环境操作。当前这是 LuCI 源码模块，不是已构建并验证的 .ipk 软件包。
+
+网络容灾模块是另一个独立开发任务，目标安装在 **192.168.31.1**，**不包含在本 LuCI 页面内**。
+
 ## 安装依赖
 
 OpenWrt 25.12+：`apk add jq curl`，同时需要已经安装 Xray、PassWall 和 UCI。
