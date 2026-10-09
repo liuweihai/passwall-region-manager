@@ -21,5 +21,6 @@ grep -F 'disabled' "$UI" >/dev/null
 grep -F 'type nat hook postrouting' "$SIDE" >/dev/null
 grep -F 'ip saddr $CLIENT' "$SIDE" >/dev/null
 grep -F 'lease_expire()' "$SIDE" >/dev/null
+grep -F 'token="$(date +%s)-$"' "$SIDE" >/dev/null
 grep -F 'expected=' "$SIDE" >/dev/null
 echo 'Source-preserving strategy and safety-lock static tests passed'
