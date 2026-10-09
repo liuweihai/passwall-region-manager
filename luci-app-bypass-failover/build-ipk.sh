@@ -17,7 +17,7 @@ python3 -m json.tool "$WORK/data/usr/share/luci/menu.d/luci-app-bypass-failover.
 python3 -m json.tool "$WORK/data/usr/share/rpcd/acl.d/luci-app-bypass-failover.json" >/dev/null
 cat > "$WORK/control/control" <<'EOF'
 Package: luci-app-bypass-failover
-Version: 0.3.0-beta7
+Version: 0.3.0-beta8
 Architecture: all
 Maintainer: liuweihai
 Depends: luci-base, curl, ip-full, nftables, jq, ca-bundle
@@ -33,10 +33,10 @@ tar -C "$WORK/data" -czf "$WORK/data.tar.gz" .
 # not a Debian ar archive. Match OpenWrt scripts/ipkg-build.
 (
   cd "$WORK"
-  tar --format=gnu --numeric-owner -cf - ./debian-binary ./data.tar.gz ./control.tar.gz | gzip -n > "$OUT/luci-app-bypass-failover_0.3.0-beta7_all.ipk"
+  tar --format=gnu --numeric-owner -cf - ./debian-binary ./data.tar.gz ./control.tar.gz | gzip -n > "$OUT/luci-app-bypass-failover_0.3.0-beta8_all.ipk"
 )
 # Reject malformed packages at build time; verify both inner archives.
-tar -tzf "$OUT/luci-app-bypass-failover_0.3.0-beta7_all.ipk" | grep -Fx './control.tar.gz' >/dev/null
-tar -tzf "$OUT/luci-app-bypass-failover_0.3.0-beta7_all.ipk" | grep -Fx './data.tar.gz' >/dev/null
-tar -tzf "$OUT/luci-app-bypass-failover_0.3.0-beta7_all.ipk" | grep -Fx './debian-binary' >/dev/null
-echo "Built $OUT/luci-app-bypass-failover_0.3.0-beta7_all.ipk (OpenWrt opkg tar.gz format)"
+tar -tzf "$OUT/luci-app-bypass-failover_0.3.0-beta8_all.ipk" | grep -Fx './control.tar.gz' >/dev/null
+tar -tzf "$OUT/luci-app-bypass-failover_0.3.0-beta8_all.ipk" | grep -Fx './data.tar.gz' >/dev/null
+tar -tzf "$OUT/luci-app-bypass-failover_0.3.0-beta8_all.ipk" | grep -Fx './debian-binary' >/dev/null
+echo "Built $OUT/luci-app-bypass-failover_0.3.0-beta8_all.ipk (OpenWrt opkg tar.gz format)"
