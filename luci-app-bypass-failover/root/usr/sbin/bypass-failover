@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bypass Failover v1.0.0-rc1 (OpenWrt 24.10 / fw4) - IPv4 only.
+# Bypass Failover v1.1.0-rc1 (OpenWrt 24.10 / fw4) - IPv4 only.
 # Installed ONLY on the primary OpenWrt. Disabled by default.
 set -u
 CFG=/etc/config/bypass_failover
@@ -325,6 +325,12 @@ use_bypass() {
   nft list table inet "$NFT" >/dev/null 2>&1 && return 1
   : > "$FULL_OWNED"
   redirects_disable || { clear_route; return 1; }
+  # Side must be able to answer DNS on :53 before intercepting LAN queries.
+  # Do not activate a broken DNS redirection and strand all clients.
+  if ! nslookup www.baidu.com "$BYPASS" >/dev/null 2>&1; then
+    say "旁路由 DNS :53 不可用，保持主路由直连"
+    clear_route; return 1
+  fi
   ip -4 route replace default via "$BYPASS" dev "$LAN" table "$TABLE" || { clear_route; return 1; }
   nft -f - <<EOF
 table inet $NFT {
@@ -335,6 +341,16 @@ table inet $NFT {
  chain observe_to_side {
   type filter hook postrouting priority mangle; policy accept;
   oifname "$LAN" meta mark $MARK ip saddr != $PRIMARY counter
+ }
+ # NAT only client DNS, never the entire proxy flow: preserve real client IP
+ # for Mihomo's rules, avoid accidental LAN return-path changes.
+ chain dns_to_side {
+  type nat hook prerouting priority dstnat; policy accept;
+  iifname "$LAN" ether saddr != $bypass_mac ip saddr != $BYPASS meta l4proto { tcp, udp } th dport 53 counter dnat ip to $BYPASS
+ }
+ chain dns_return {
+  type nat hook postrouting priority srcnat; policy accept;
+  oifname "$LAN" ip daddr $BYPASS ip saddr != $PRIMARY meta l4proto { tcp, udp } th dport 53 counter snat ip to $PRIMARY
  }
 }
 EOF
@@ -347,7 +363,7 @@ EOF
     *"via $BYPASS dev $LAN"*) ;;
     *) say "全屋策略路由核验失败：$route_check"; clear_route; return 1 ;;
   esac
-  say "已启用全屋 TCP/UDP 引流：LAN $LAN -> $BYPASS；不修改客户端 DHCP/网关/DNS"
+  say "已启用全屋 TCP/UDP 引流与客户端 DNS 重定向：LAN $LAN -> $BYPASS；不修改 DHCP；真实客户端回程尚需验收"
   echo bypass > "$STATE"
 }
 test_clear() {
@@ -576,6 +592,9 @@ status() {
   echo "side_package_required=no"
   echo "test_client=$(val test_client '')"
   echo "forwarding_scope=ipv4_tcp_udp_external"
+  echo "client_dns_redirect=$(if [ -f "$FULL_OWNED" ] && nft list chain inet "$NFT" dns_to_side >/dev/null 2>&1; then echo active; else echo disabled; fi)"
+  echo "client_dns_target=$(val bypass '')"
+  echo "client_verified=no"
   echo "route_validation=runtime-required"
   echo "health_evidence=side_icmp_then_routed_https"
   echo "client_return_path=direct_l2_from_side_unverified"
