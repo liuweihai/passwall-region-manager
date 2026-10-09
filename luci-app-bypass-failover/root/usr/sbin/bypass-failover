@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bypass Failover v0.3.0-beta11 (OpenWrt 24.10 / fw4) - IPv4 only.
+# Bypass Failover v0.3.0-beta12 (OpenWrt 24.10 / fw4) - IPv4 only.
 # Installed ONLY on the primary OpenWrt. Disabled by default.
 set -u
 CFG=/etc/config/bypass_failover
@@ -102,8 +102,11 @@ EOF
 # This tests the router-originated path, NOT the client return path.
 # The actual switching gate remains locked until client path acceptance.
 health_report() {
- check_config || { echo 'config=invalid'; return 1; }
+ say '网络检测开始：主路由直连模式下检查旁路由状态'
+ check_config || { say '网络检测失败：配置校验未通过'; echo 'config=invalid'; return 1; }
+ say '阶段1：检查旁路由 ICMP 连通性'
  if ! ping -c 1 -W 2 "$BYPASS" >/dev/null 2>&1; then
+  say '阶段1失败：旁路由 ICMP 无响应；跳过 HTTPS 检测；保持直连'
   echo 'side=offline'
   echo 'external=skipped'
   echo 'decision=direct'
@@ -111,12 +114,15 @@ health_report() {
   return 1
  fi
  echo 'side=online'
+ say '阶段1成功：旁路由可达；阶段2开始：经旁路由 HTTPS 检测'
  if probe_transparent; then
+  say '阶段2成功：HTTPS 路径可达；客户端回程仍未验收；保持直连'
   echo 'external=reachable_via_side_route'
   echo 'decision=side_candidate'
   echo 'client_return_path=unverified'
   return 0
  fi
+ say '阶段2失败或未确认：HTTPS 路径不可用；保持直连'
  echo 'external=unreachable_or_unverified'
  echo 'decision=direct'
  echo 'client_return_path=unverified'
