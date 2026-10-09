@@ -76,7 +76,7 @@ probe_transparent() (
   nft list table inet "$PROBE_NFT" >/dev/null 2>&1 && return 1
   mkdir "$PROBE_LOCK" 2>/dev/null || return 1
   trap 'probe_clear' EXIT
-  trap 'return 1' INT TERM
+  trap 'probe_clear; exit 1' INT TERM
   ip -4 route replace default via "$BYPASS" dev "$LAN" table "$PROBE_TABLE" || return 1
   if ! nft -f - <<EOF
 table inet $PROBE_NFT {
@@ -399,13 +399,15 @@ case "${1:-status}" in
   status) status;;
   check) check_config && { check_base && echo healthy || echo unhealthy; };;
   check-proxy)
-    check_config || return 1
-    check_base || { echo bypass_unreachable; return 0; }
-    endpoint=$(val proxy_endpoint '')
-    if [ -z "$endpoint" ]; then
-      if probe_transparent; then echo path_reachable_unverified; else echo path_unreachable; fi
+    if ! check_config; then echo config_invalid
+    elif ! check_base; then echo bypass_unreachable
     else
-      if health; then echo proxy_healthy; else echo proxy_unhealthy; fi
+      endpoint=$(val proxy_endpoint '')
+      if [ -z "$endpoint" ]; then
+        if probe_transparent; then echo path_reachable_unverified; else echo path_unreachable; fi
+      else
+        if health; then echo proxy_healthy; else echo proxy_unhealthy; fi
+      fi
     fi ;;
   test-start) test_start;;
   test-stop) test_clear; say '单设备测试手动停止';;
