@@ -1,4 +1,10 @@
-# 智能网络保护 / Bypass Failover — v0.3.0-beta4
+## v0.3.0-beta5 安全集成阶段
+- 主路由安装包 luci-app-bypass-failover，独立旁路由安装包 bypass-failover-side，后者默认 allow_apply=0、无自动启动。
+- 目前 **不能进行双端一键自动配置**，侧路由包只提供可审计的单设备限时 NAT 实验规则；禁止把安装成功当作实际联网成功。
+- 旧版主路由 SNAT 成 .1 已退役，改为保留客户端原地址；全屋自动保护和客户端临时引流仍处于安全锁定。
+- 双端真实回程验证、认证控制通道、服务端自动回滚、故障恢复、DNS/UDP/IPv6 仍未验收，**不要手动开启原实验引流**。
+
+# 智能网络保护 / Bypass Failover — v0.3.0-beta5
 
 为 OpenWrt 主路由设计的旁路由故障保护插件。**当前是测试版，尚未通过真实单臂旁路由的完整自动接管验收。请不要把它当成已完成的全屋容灾产品。**
 
@@ -10,13 +16,13 @@
 4. 单台设备的临时 TCP 引流测试目前属于 **高级设置**，最长约 60 秒，看门狗尝试自动清理，另有手动撤销入口。测试存在短暂断网风险，仅限可恢复的实验设备和维护窗口。
 5. 全屋保护继续锁定：需要真实代理出口、回程、防环路及故障回退验证，不能手动修改 `forwarding_verified` 跳过验证。
 
-## v0.3.0-beta4 变更
+## v0.3.0-beta5 变更
 
 - 取消「必须先直连 Cloudflare 成功才能检测旁路由路径」这一错误前置条件。
 - 新增 `path_reachable_unverified` / `path_unreachable` 等明确状态；成功只表示主路由发出的标记 TCP 请求可达，**不能说明客户端流量、代理出口或回程已成功**。
 - 代理出口没有独立证据时仍保持 `health` 失败、禁止自动引流；默认仍为直连。
 
-## v0.3.0-beta3 变更
+## v0.3.0-beta5 变更
 
 - 新增临时测试的入口匹配包数与 SNAT 出口包数，便于区分策略命中和实际转发阶段。
 - 临时测试开始约 12 秒后，如果已出现入口匹配包、但 SNAT 计数仍为零，自动提前撤销引流，不再一律等待 60 秒。
@@ -44,6 +50,6 @@
 
 ## 安装包
 
-GitHub Actions: `.github/workflows/build-bypass-failover.yml`。构建脚本：`bash luci-app-bypass-failover/build-ipk.sh`；预期产物：`dist/luci-app-bypass-failover_0.3.0-beta4_all.ipk`。**只有构建工作流成功时才说明包已生成，语法检查和构建成功也不代表实机容灾通过。**
+GitHub Actions: `.github/workflows/build-bypass-failover.yml`。构建脚本：`bash luci-app-bypass-failover/build-ipk.sh`；预期产物：`dist/luci-app-bypass-failover_0.3.0-beta5_all.ipk`。**只有构建工作流成功时才说明包已生成，语法检查和构建成功也不代表实机容灾通过。**
 
 插件应安装在 **支持 fw4/nftables 的主 OpenWrt 路由器**，不可和旁路由上的多国家节点管理器混装。IPv4 主路由 IP、旁路由 IP 均由用户填写或从本地配置读取，不写死任何家庭 LAN 地址。
