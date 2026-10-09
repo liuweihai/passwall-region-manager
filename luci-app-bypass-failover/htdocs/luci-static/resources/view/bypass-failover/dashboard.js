@@ -60,8 +60,8 @@ function renderSummary(data) {
  if (document.activeElement!==addrInput) addrInput.value=address;
  var active=s.mode==='auto' && s.state==='bypass';
  header.replaceChildren(
-  E('h3',{},active?T('网络保护运行中','Network protection active'):T('网络保护尚未开启','Network protection is not active')),
-  E('p',{},active?T('正在使用旁路由；出现异常时将尝试切回主路由。','Using bypass router with fallback enabled.'):
+  E('h3',{},active?T('自动引流已安装（真实客户端效果待验收）','Automatic routing installed (client access unverified)'):T('网络保护尚未开启','Network protection is not active')),
+  E('p',{},active?T('主路由引流规则及 DNS 转发已配置；故障时尝试回退直连，但这不代表客户端代理访问已经成功。','Routing and DNS forwarding installed; fallback does not prove client connectivity.'):
     T('你的网络保持原样。完成检查后，才能开启自动保护。','Your network is unchanged. Complete checks before enabling protection.')),
   E('p',{},s.test==='running'?
     T('临时测试剩余约 '+(s.test_remaining||'?')+' 秒；入口 '+(s.test_packets||'0')+' 包、出口 '+(s.test_egress_packets||'0')+' 包（不代表代理成功）。','Temporary test: '+(s.test_remaining||'?')+'s; marked '+(s.test_packets||'0')+', 出口 '+(s.test_egress_packets||'0')+' packets (not proxy proof).'):
