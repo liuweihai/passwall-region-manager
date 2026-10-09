@@ -175,7 +175,7 @@ test_start() {
 table inet $TEST_NFT {
  chain mark_test {
   type filter hook prerouting priority mangle; policy accept;
-  iifname "$LAN" ether saddr $client_mac ether saddr != $mac ip saddr $client ip daddr != 10.0.0.0/8 ip daddr != 172.16.0.0/12 ip daddr != 192.168.0.0/16 ip daddr != 127.0.0.0/8 ip daddr != 169.254.0.0/16 ip daddr != 224.0.0.0/4 counter meta mark set $TEST_MARK
+  iifname "$LAN" ether saddr $client_mac ether saddr != $mac meta mark 0x0 meta l4proto tcp ip saddr $client ip daddr != 10.0.0.0/8 ip daddr != 172.16.0.0/12 ip daddr != 192.168.0.0/16 ip daddr != 127.0.0.0/8 ip daddr != 169.254.0.0/16 ip daddr != 224.0.0.0/4 counter meta mark set $TEST_MARK
  }
  chain test_snat {
   type nat hook postrouting priority srcnat - 1; policy accept;
