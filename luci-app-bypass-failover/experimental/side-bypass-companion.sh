@@ -67,5 +67,5 @@ case "${1:-audit}" in
  audit) audit;;
  apply) apply;;
  remove) remove;;
- *) echo 'usage: audit|apply|remove' >&2; return 2;;
+ *) echo 'usage: audit|apply|remove' >&2; exit 2;;
 esac
