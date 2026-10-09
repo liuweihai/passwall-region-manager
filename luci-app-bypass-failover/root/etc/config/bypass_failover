@@ -7,3 +7,7 @@ config settings 'main'
  option fail_count '3'
  option recover_count '5'
  option hold_seconds '120'
+
+ option forwarding_verified '0'
+ option proxy_endpoint ''
+ option webhook ''
