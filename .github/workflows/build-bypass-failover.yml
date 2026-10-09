@@ -19,6 +19,7 @@ jobs:
           set -euo pipefail
           sh -n luci-app-bypass-failover/root/usr/sbin/bypass-failover
           sh -n luci-app-bypass-failover/experimental/side-bypass-companion.sh
+          sh luci-app-bypass-failover/tests/guardrails.sh
           sh -n luci-app-bypass-failover/root/usr/libexec/bypass-failover-web
           sh -n luci-app-bypass-failover/root/etc/init.d/bypass-failover
           node -e 'const fs=require("fs");const p="luci-app-bypass-failover/htdocs/luci-static/resources/view/bypass-failover/dashboard.js";new Function(fs.readFileSync(p,"utf8"));console.log("LuCI JavaScript syntax OK")'
