@@ -54,7 +54,7 @@ var stateLabels = {
 function translateValue(key, value) {
  if ((key === 'mode' || key === 'state' || key === 'daemon' ||
       key === 'ipv6' || key === 'proxy_check' || key === 'notifications' ||
-      key === 'dns_strategy' || key === 'ipv6_strategy' || key === 'forwarding_verified') &&
+      key === 'dns_strategy' || key === 'ipv6_strategy' || key === 'forwarding_verified' || key === 'test') &&
      stateLabels[value]) return t.apply(null, stateLabels[value]);
  return value;
 }
@@ -106,6 +106,14 @@ function localError(raw) {
   return '尚未完成同网段转发验证，禁止启用自动容灾。';
  if (err.indexOf('real proxy health check failed') >= 0)
   return '真实代理出口检测失败，无法启用自动容灾。';
+ if (err.indexOf('proxy exit check failed') >= 0) return '真实代理出口检测未通过，未启动测试。';
+ if (err.indexOf('test client IP not configured') >= 0) return '请先填写并保存测试设备 IPv4 地址。';
+ if (err.indexOf('test client not in LAN') >= 0) return '测试设备不在当前局域网内。';
+ if (err.indexOf('cannot determine bypass MAC') >= 0) return '无法读取旁路由 MAC 地址，已拒绝测试以避免转发环路。';
+ if (err.indexOf('test already running') >= 0) return '测试已在运行，请先停止当前测试。';
+ if (err.indexOf('only permitted in direct mode') >= 0) return '只有在主路由直连模式下才能启动单设备测试。';
+ if (err.indexOf('watchdog unavailable') >= 0) return '安全回滚进程启动失败，已取消测试。';
+ if (err.indexOf('Proxy endpoint must') >= 0) return '检测地址必须使用当前配置的旁路由 IP 和真实代理端口。';
  if (err.indexOf('config invalid') >= 0)
   return '基础配置无效，未对网络进行更改。';
  return err;
