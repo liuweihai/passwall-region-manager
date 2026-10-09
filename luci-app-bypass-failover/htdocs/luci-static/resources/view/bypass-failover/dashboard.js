@@ -159,7 +159,7 @@ return view.extend({
    E('summary',{'style':'cursor:pointer;font-weight:bold;padding:12px 0'},T('高级设置（了解网络的用户）','Advanced settings (experienced users)')),
    E('p',{},T('以下为维护工具。单设备透明 TCP 测试不再要求 SOCKS5；但真实代理、回程与回退仍需人工核验。','Maintenance tools. Transparent TCP test no longer requires SOCKS5; forwarding and rollback still need real-world verification.')),
    E('h4',{},T('60 秒安全回滚测试（不影响真实网络）','60-second safe rollback dry run')),
-   E('p',{},T('仅在后台启动 60 秒计时与清理验收，不修改路由、nftables 或客户端流量。关闭浏览器后后台仍继续执行；完成后核对规则残留。','Runs a 60-second server-side rollback rehearsal. No routing, nftables or client traffic changes. Continues if browser closes.')),
+   E('p',{},T('创建不影响正常流量的隔离 nft 表和策略路由规则，60 秒到期后撤销并核验。','Runs a 60-second server-side rollback rehearsal. No routing, nftables or client traffic changes. Continues if browser closes.')),
    safeResult=E('p',{},T('当前未运行安全回滚测试','No safe rollback test active')),
    E('button',{'class':'btn cbi-button-action','click':function(){
     run('safe-test-start').then(function(){message(T('已启动 60 秒安全测试','60-second dry run started'));return reload();}).catch(showError);
