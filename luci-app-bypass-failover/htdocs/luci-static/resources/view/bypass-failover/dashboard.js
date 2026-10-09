@@ -60,7 +60,7 @@ function renderSummary(data) {
     T('当前没有运行临时引流测试。','No temporary route test is active.'))
  );
  var configured=!!address;
- var validated=s.forwarding_verified==='1' && s.proxy_check==='configured';
+ var validated=s.forwarding_verified==='1' && s.proxy_check==='configured' && !s.auto_safety_lock;
  guide.replaceChildren(
   E('h3',{},T('只需三步','Just three steps')),
   E('div',{'class':'cbi-section'},[
@@ -102,7 +102,8 @@ function renderSummary(data) {
   ]),
   E('div',{'class':'cbi-section'},[
    E('h4',{},T('第三步：开启自动保护','Step 3: Turn on protection')),
-   E('p',{},validated?
+   E('p',{},s.auto_safety_lock?
+     T('安全锁定：已确认当前单臂旁路由 SNAT 回程方案可能导致客户端断网。必须完成真实回程验收后才能开启。','Safety locked: the single-arm SNAT return path can disconnect clients. Activation requires end-to-end validation.'):validated?
      T('已配置检测入口并记录转发验证标志；开启前仍应确认真实回程测试。','Configuration flag present; confirm real-world return-path testing.'):
      T('仍需完成真实引流与回退测试。为保护家庭网络，暂不允许开启。','Real routing and fallback tests are still required. Activation remains locked for safety.')),
    E('button',{'class':'btn cbi-button-positive','disabled':!validated,'click':function(){
@@ -161,10 +162,11 @@ return view.extend({
    ' ',
    E('button',{'class':'btn cbi-button','click':function(){run('check-proxy').then(function(v){message(v.trim()==='proxy_healthy'?T('代理检测通过','Proxy check passed'):T('代理出口不可用或未配置','Proxy unavailable or not configured'));}).catch(showError);}},T('检测代理','Check proxy')),
    E('h4',{},T('指定设备临时测试','Temporary single-client test')),
+   E('p',{},T('由于当前单臂回程尚未修复，真实引流按钮暂时锁定；先使用下方无断网风险的拓扑检查。','Live client routing is locked until the single-arm return path is fixed. Use the non-disruptive audit below.')),
    testInput,' ',
    E('button',{'class':'btn cbi-button','click':function(){run('set-client',[testInput.value.trim()]).then(reload).catch(showError);}},T('保存测试设备','Save test client')),
    ' ',
-   E('button',{'class':'btn cbi-button','click':function(){
+   E('button',{'class':'btn cbi-button','disabled':true,'click':function(){
     ui.showModal(T('确认临时测试','Confirm temporary test'),[
      E('p',{},T('仅对指定设备做透明 TCP 临时引流。可能断网；主路由看门狗最长约 60 秒撤销规则。测试启动不代表代理出口验证通过。','Temporary transparent TCP route for one device only. Connectivity may break; rollback depends on the primary-router watchdog. Test start is not proof of proxy functionality.')),
      E('button',{'class':'btn','click':ui.hideModal},T('取消','Cancel')),' ',
@@ -175,7 +177,7 @@ return view.extend({
    E('button',{'class':'btn cbi-button-negative','click':function(){run('test-stop').then(reload).catch(showError);}},T('撤销测试','Cancel test')),
    E('h4',{},T('浏览器端到端网络试验（仍属测试功能）','Browser end-to-end connectivity trial')),
    E('p',{},T('请在上方填写当前这台设备的 IP，并用这台设备的浏览器执行。系统会临时引流、请求一个 HTTPS 地址、读取入口及 SNAT 计数，再立即撤销测试。成功请求也不代表代理节点出口已验证。','Set the IP of this browser device above. This tries HTTPS over temporary routing, reads packet matches, then rolls back immediately. It does not prove proxy-node egress.')),
-   E('button',{'class':'btn cbi-button','click':function(){
+   E('button',{'class':'btn cbi-button','disabled':true,'click':function(){
      var target=testInput.value.trim();
      if (!target) { message(T('请先填写当前浏览器设备的 IPv4 地址。','Enter this browser device IPv4 first.'),true); return; }
      var started=false, networkOK=false, packets=0, networkError='';
@@ -206,6 +208,13 @@ return view.extend({
       });
    }},T('开始并自动撤销测试','Run trial and roll back')),
    E('h4',{},T('诊断','Diagnostics')),
+   E('button',{'class':'btn cbi-button','click':function(){
+    run('topology-audit').then(function(v){ui.showModal(T('单臂网络只读检查','Read-only topology audit'),[
+      E('pre',{'style':'white-space:pre-wrap'},v),
+      E('button',{'class':'btn cbi-button','click':ui.hideModal},T('关闭','Close'))
+    ]);}).catch(showError);
+   }},T('一键拓扑检查（不改变网络）','Safe topology audit')),
+   ' ',
    E('button',{'class':'btn cbi-button','click':function(){run('preflight').then(function(v){message(v);}).catch(showError);}},T('查看诊断详情','Show diagnostics')),
    E('h4',{},T('运行日志','Event log')),events
   ]);
