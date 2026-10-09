@@ -319,6 +319,16 @@ table inet $TEST_NFT {
 EOF
  then test_clear; return 1; fi
  if ! ip -4 rule add priority 10200 fwmark "$TEST_MARK" table "$TEST_TABLE"; then test_clear; return 1; fi
+ # Non-disruptive FIB assertion: installation of a rule alone is not proof
+ # it selects the bypass. Abort before claiming a live forwarding test.
+ route_check=$(ip -4 route get 1.1.1.1 from "$client" iif "$LAN" mark "$TEST_MARK" 2>&1)
+ case "$route_check" in
+  *"via $BYPASS dev $LAN"*) say "策略路由 FIB 检查通过：测试设备 $client → $BYPASS";;
+  *) say "策略路由 FIB 与预期不符：$route_check，已撤销测试规则"
+     test_clear
+     echo 'test policy route did not select configured bypass; rolled back' >&2
+     return 1 ;;
+ esac
  # Start watchdog with a separate lifetime. A failure to launch aborts testing.
  ( "$0" test-watchdog "$deadline" </dev/null >/dev/null 2>&1 & )
  sleep 1
@@ -343,6 +353,7 @@ status() {
   echo "dns_strategy=primary-router"
   echo "ipv6_strategy=unchanged"
   echo "test_client=$(val test_client '')"
+  echo "route_validation=runtime-required"
   echo "dhcp_router=$(uci -q get dhcp.lan.dhcp_option 2>/dev/null | tr '\n' ',' || true)"
   test_status
   echo "notifications=$(case "$(val webhook '')" in https://*) echo configured;; *) echo disabled;; esac)"
