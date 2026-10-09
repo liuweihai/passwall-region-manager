@@ -219,7 +219,16 @@ health_report() {
   return 1
  fi
  echo 'side=online'
- say '阶段1成功：旁路由可达；阶段2开始：经旁路由 HTTPS 检测'
+ if ! nslookup www.baidu.com "$BYPASS" >/dev/null 2>&1; then
+  say '旁路由 DNS 检测失败，保持或恢复主路由直连'
+  echo 'dns=unavailable'
+  echo 'external=skipped'
+  echo 'decision=direct'
+  echo 'client_return_path=unverified'
+  return 1
+ fi
+ echo 'dns=reachable'
+ say '阶段1成功：旁路由 DNS 可达；阶段2开始：经旁路由 HTTPS 检测'
  if probe_transparent; then
   say '阶段2成功：HTTPS 路径可达；客户端回程仍未验收；保持直连'
   echo 'external=reachable_via_side_route'
