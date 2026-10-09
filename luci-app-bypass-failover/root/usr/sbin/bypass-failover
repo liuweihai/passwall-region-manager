@@ -167,6 +167,7 @@ status() {
   echo "forwarding_verified=$(val forwarding_verified 0)"
   echo "dns_strategy=primary-router"
   echo "ipv6_strategy=unchanged"
+  echo "test_client=$(val test_client '')"
   test_status
   echo "notifications=$(case "$(val webhook '')" in https://*) echo configured;; *) echo disabled;; esac)"
 }
