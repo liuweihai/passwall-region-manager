@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bypass Failover v0.3.0-beta3 (OpenWrt 24.10 / fw4) - IPv4 only.
+# Bypass Failover v0.3.0-beta4 (OpenWrt 24.10 / fw4) - IPv4 only.
 # Installed ONLY on the primary OpenWrt. Disabled by default.
 set -u
 CFG=/etc/config/bypass_failover
@@ -66,22 +66,19 @@ probe_ip() {
     'https://one.one.one.one/cdn-cgi/trace' 2>/dev/null |
     sed -n 's/^ip=//p' | tr -d '\r' | head -n 1
 }
+# Check bypass-routed HTTPS without requiring the *direct* path to reach
+# Cloudflare. This proves only that a TCP request succeeded over a marked
+# route; it is NOT evidence of a proxy exit or client return-path correctness.
 probe_transparent() (
-  # No package installs or persistent PassWall configuration changes.
   [ -d "$PROBE_LOCK" ] && return 1
   [ -z "$(ip -4 route show table "$PROBE_TABLE" 2>/dev/null)" ] || return 1
   ip -4 rule show | grep -q '^10202:' && return 1
   nft list table inet "$PROBE_NFT" >/dev/null 2>&1 && return 1
   mkdir "$PROBE_LOCK" 2>/dev/null || return 1
   trap 'probe_clear' EXIT
-  trap 'exit 1' INT TERM
-  direct_ip=$(probe_ip)
-  if ! valid_ip "$direct_ip"; then
-    say '探测目标直连不可达：无法作出口 IP 对比；此结果不代表旁路由故障'
-    return 1
-  fi
+  trap 'return 1' INT TERM
   ip -4 route replace default via "$BYPASS" dev "$LAN" table "$PROBE_TABLE" || return 1
-  nft -f - <<EOF
+  if ! nft -f - <<EOF
 table inet $PROBE_NFT {
  chain output_mark {
   type route hook output priority mangle; policy accept;
@@ -89,23 +86,27 @@ table inet $PROBE_NFT {
  }
 }
 EOF
-  nft list table inet "$PROBE_NFT" >/dev/null 2>&1 || return 1
+  then return 1; fi
   ip -4 rule add priority 10202 fwmark "$PROBE_MARK" table "$PROBE_TABLE" || return 1
   bypass_ip=$(probe_ip)
-  valid_ip "$bypass_ip" || return 1
+  valid_ip "$bypass_ip" || { say '旁路由路径 HTTPS 探测失败，保持直连'; return 1; }
   packets=$(nft list chain inet "$PROBE_NFT" output_mark 2>/dev/null |
     awk '/counter packets/{for(i=1;i<=NF;i++) if($i=="packets"){print $(i+1); exit}}')
   case "$packets" in ''|*[!0-9]*) return 1;; esac
-  [ "$packets" -gt 0 ] && [ "$direct_ip" != "$bypass_ip" ]
+  [ "$packets" -gt 0 ] || return 1
+  say "旁路由标记路径 HTTPS 可达（出口 $bypass_ip），但未证明代理出口或客户端回程"
 )
+
 health() {
   ping -c 1 -W 2 "$BYPASS" >/dev/null 2>&1 || return 1
   nslookup www.baidu.com "$BYPASS" >/dev/null 2>&1 || return 1
   endpoint=$(val proxy_endpoint '')
   if [ -z "$endpoint" ]; then
-    # Exit IP must differ from direct WAN, and nft must count packets.
-    probe_transparent || { say '透明 TCP 检测未取得可比出口证据（目标、直连或旁路由路径可能不可达）；保持直连'; return 1; }
-    return 0
+    # Never treat a marked router-originated probe as a verified proxy exit.
+    # The test is useful for diagnostics only; production stays gated.
+    probe_transparent || { say '透明 TCP 标记路径尚不可达，保持直连'; return 1; }
+    say '标记路径可达，但没有代理出口及客户端回程证据，禁止全屋自动引流'
+    return 1
   fi
   case "$endpoint" in
     http://"$BYPASS":*|socks5h://"$BYPASS":*) ;;
@@ -397,7 +398,15 @@ case "${1:-status}" in
   daemon) daemon;;
   status) status;;
   check) check_config && { check_base && echo healthy || echo unhealthy; };;
-  check-proxy) check_config && { health && echo proxy_healthy || echo proxy_unhealthy; };;
+  check-proxy)
+    check_config || return 1
+    check_base || { echo bypass_unreachable; return 0; }
+    endpoint=$(val proxy_endpoint '')
+    if [ -z "$endpoint" ]; then
+      if probe_transparent; then echo path_reachable_unverified; else echo path_unreachable; fi
+    else
+      if health; then echo proxy_healthy; else echo proxy_unhealthy; fi
+    fi ;;
   test-start) test_start;;
   test-stop) test_clear; say '单设备测试手动停止';;
   test-watchdog) test_watchdog "$2";;
