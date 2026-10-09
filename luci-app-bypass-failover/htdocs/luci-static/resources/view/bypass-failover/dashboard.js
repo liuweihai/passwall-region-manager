@@ -45,7 +45,7 @@ function showError(e) {
 function renderSummary(data) {
  var s=parse(data);
  var address=s.bypass||'';
- addrInput.value=address;
+ if (document.activeElement!==addrInput) addrInput.value=address;
  var active=s.mode==='auto' && s.state==='bypass';
  header.replaceChildren(
   E('h3',{},active?T('网络保护运行中','Network protection active'):T('网络保护尚未开启','Network protection is not active')),
