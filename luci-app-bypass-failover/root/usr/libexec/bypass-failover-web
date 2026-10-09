@@ -13,7 +13,7 @@ case "${1:-status}" in
  health-report)
   # Offline/failed probe is a normal *result*, not an RPC transport failure.
   "$BIN" health-report || true ;;
- status|check|check-proxy|preflight|topology-audit|fallback-audit|logs|clear-logs|test-start|test-stop) exec "$BIN" "$1" ;;
+ status|check|check-proxy|preflight|topology-audit|fallback-audit|safe-test-start|safe-test-status|safe-test-stop|logs|clear-logs|test-start|test-stop) exec "$BIN" "$1" ;;
  auto|direct) exec "$BIN" "$1" ;;
  set-bypass)
   current_mode=$(uci -q get bypass_failover.main.mode || echo direct)
