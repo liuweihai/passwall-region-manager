@@ -171,7 +171,7 @@ return view.extend({
       .then(function(){started=true;
        var controller=new AbortController();
        var timeout=setTimeout(function(){controller.abort();},8000);
-       return fetch('https://www.gstatic.com/generate_204?bypass_trial='+Date.now(),
+       return fetch('https://1.1.1.1/cdn-cgi/trace?bypass_trial='+Date.now(),
          {mode:'no-cors',cache:'no-store',signal:controller.signal})
         .then(function(){networkOK=true;},function(e){networkError=String(e.message||e);})
         .then(function(){clearTimeout(timeout);});
