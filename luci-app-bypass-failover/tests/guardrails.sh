@@ -15,7 +15,7 @@ fi
 sh -n root/usr/libexec/bypass-failover-web
 sh -n root/etc/init.d/bypass-failover
 sh -n root/etc/hotplug.d/iface/95-bypass-failover
-if grep -Eq 'snat ip to \$PRIMARY|snat ip to 192\.168\.31\.1' "$CORE"; then
+if grep -Eq 'meta mark \$MARK.*snat ip|snat ip to 192\.168\.31\.1' "$CORE"; then
  echo 'FAIL: blanket primary SNAT is present' >&2
  exit 1
 fi
