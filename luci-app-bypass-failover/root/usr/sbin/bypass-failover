@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bypass Failover v0.3.0-rc4 (OpenWrt 24.10 / fw4) - IPv4 only.
+# Bypass Failover v1.0.0-rc1 (OpenWrt 24.10 / fw4) - IPv4 only.
 # Installed ONLY on the primary OpenWrt. Disabled by default.
 set -u
 CFG=/etc/config/bypass_failover
@@ -330,7 +330,7 @@ use_bypass() {
 table inet $NFT {
  chain mark_in {
   type filter hook prerouting priority mangle; policy accept;
-  iifname "$LAN" ether saddr != $bypass_mac meta mark 0x0 meta l4proto tcp ip saddr != $BYPASS ip saddr != $PRIMARY ip daddr != 192.168.0.0/16 ip daddr != 10.0.0.0/8 ip daddr != 172.16.0.0/12 ip daddr != 127.0.0.0/8 ip daddr != 224.0.0.0/4 meta mark set $MARK
+  iifname "$LAN" ether saddr != $bypass_mac meta mark 0x0 meta l4proto { tcp, udp } ip saddr != $BYPASS ip saddr != $PRIMARY ip daddr != 192.168.0.0/16 ip daddr != 10.0.0.0/8 ip daddr != 172.16.0.0/12 ip daddr != 127.0.0.0/8 ip daddr != 169.254.0.0/16 ip daddr != 224.0.0.0/4 meta mark set $MARK counter
  }
  chain observe_to_side {
   type filter hook postrouting priority mangle; policy accept;
@@ -340,6 +340,14 @@ table inet $NFT {
 EOF
   if ! nft list table inet "$NFT" >/dev/null 2>&1; then clear_route; return 1; fi
   if ! ip -4 rule add priority 10201 fwmark "$MARK" table "$TABLE"; then clear_route; return 1; fi
+  # Confirm marked client lookups select the actual side next hop before
+  # reporting success. This is a routing assertion, not end-to-end proof.
+  route_check=$(ip -4 route get 1.1.1.1 from "$PRIMARY" mark "$MARK" 2>&1)
+  case "$route_check" in
+    *"via $BYPASS dev $LAN"*) ;;
+    *) say "全屋策略路由核验失败：$route_check"; clear_route; return 1 ;;
+  esac
+  say "已启用全屋 TCP/UDP 引流：LAN $LAN -> $BYPASS；不修改客户端 DHCP/网关/DNS"
   echo bypass > "$STATE"
 }
 test_clear() {
@@ -567,13 +575,14 @@ status() {
   echo "deployment=primary_only"
   echo "side_package_required=no"
   echo "test_client=$(val test_client '')"
+  echo "forwarding_scope=ipv4_tcp_udp_external"
   echo "route_validation=runtime-required"
   echo "health_evidence=side_icmp_then_routed_https"
-  echo "client_return_path=unverified"
-  echo "fallback_policy=main"
+  echo "client_return_path=direct_l2_from_side_unverified"
+  echo "fallback_policy=main"\n  echo "live_routing=$(if [ -f "$FULL_OWNED" ] && nft list table inet "$NFT" >/dev/null 2>&1; then echo installed; else echo absent; fi)"
   echo "network_event_handler=installed"
-  echo "auto_safety_lock=single_arm_return_unverified"
-  echo "client_test_safety_lock=single_arm_return_unverified"
+  echo "auto_safety_lock=none"
+  echo "client_test_safety_lock=none"
   echo "dhcp_router=$(uci -q get dhcp.lan.dhcp_option 2>/dev/null | tr '\n' ',' || true)"
   test_status
   echo "notifications=$(case "$(val webhook '')" in https://*) echo configured;; *) echo disabled;; esac)"
