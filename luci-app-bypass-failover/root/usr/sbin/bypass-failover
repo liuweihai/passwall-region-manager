@@ -19,8 +19,9 @@ notify() {
 }
 valid_ip() { case "$1" in ''|*[!0-9.]*|.*|*..*|*.) return 1;; esac; echo "$1" | awk -F. 'NF==4 {for(i=1;i<=4;i++) if($i !~ /^[0-9]+$/ || $i>255 || length($i)>3) exit 1; exit 0} {exit 1}'; }
 check_config() {
-  PRIMARY=$(val primary 192.168.31.1)
-  BYPASS=$(val bypass 192.168.31.2)
+  PRIMARY=$(val primary '')
+  [ -n "$PRIMARY" ] || PRIMARY=$(uci -q get network.lan.ipaddr || true)
+  BYPASS=$(val bypass '')
   LAN=$(val lan br-lan)
   INTERVAL=$(val interval 10)
   FAIL=$(val fail_count 3)
@@ -28,7 +29,7 @@ check_config() {
   HOLD=$(val hold_seconds 120)
   for ip in "$PRIMARY" "$BYPASS"; do valid_ip "$ip" || { say "无效 IP: $ip"; return 1; }; done
   [ "$PRIMARY" != "$BYPASS" ] || return 1
-  [ "$LAN" = br-lan ] || { say 'v0.1 only supports br-lan'; return 1; }
+  ip link show "$LAN" >/dev/null 2>&1 || { say 'LAN interface not found'; return 1; }
   ip -4 addr show dev "$LAN" | grep -Fq "$PRIMARY/" || { say '主路由LAN地址不匹配'; return 1; }
   ip -4 route get "$BYPASS" | grep -q "dev $LAN" || { say '旁路由不在指定 LAN'; return 1; }
   for n in "$INTERVAL" "$FAIL" "$RECOVER" "$HOLD"; do case "$n" in ''|*[!0-9]*) return 1;; esac; done
@@ -84,7 +85,7 @@ status() {
   echo "mode=$(mode)"
   echo "state=$(cat "$STATE" 2>/dev/null || echo direct)"
   if [ -f "$PID" ] && kill -0 "$(cat "$PID")" 2>/dev/null; then echo "daemon=running"; else echo "daemon=stopped"; fi
-  echo "bypass=$(val bypass 192.168.31.2)"
+  echo "bypass=$(val bypass '')"
   echo "lan=$(val lan br-lan)"
   echo "ipv6=not-managed"
   echo "proxy_check=$(case "$(val proxy_endpoint '')" in '') echo unconfigured;; *) echo configured;; esac)"
