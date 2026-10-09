@@ -1,0 +1,8 @@
+regions.conf
+verified.tsv
+*.json
+*.log
+*.bak
+*.backup
+*backup*
+.env
