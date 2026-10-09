@@ -1,0 +1,36 @@
+#!/bin/sh
+# LuCI adapter: safe, read-only actions plus explicit verify start.
+set -u
+BIN=/usr/bin/passwall-region-manager
+DIR=/tmp/prm-web
+mkdir -p "$DIR"
+case "${1:-}" in
+  scan) "$BIN" scan ;;
+  status) "$BIN" status ;;
+  plan) "$BIN" plan ;;
+  logs) tail -n 80 /tmp/passwall-region-manager.log 2>/dev/null || true ;;
+  state)
+    if [ -f "$DIR/pid" ]; then
+      pid=$(cat "$DIR/pid" 2>/dev/null || true)
+      case "$pid" in *[!0-9]*|'') echo invalid;; *)
+        if kill -0 "$pid" 2>/dev/null; then echo running; else echo finished; fi ;;
+      esac
+    else echo idle; fi ;;
+  start)
+    case "${2:-}" in US|JP|HK|SG|TW|KR|ALL) region=$2;; *) echo 'Invalid region' >&2; exit 2;; esac
+    if [ -f "$DIR/pid" ]; then
+      pid=$(cat "$DIR/pid" 2>/dev/null || true)
+      case "$pid" in *[!0-9]*|'') ;; *) kill -0 "$pid" 2>/dev/null && { echo 'A verification is already running' >&2; exit 2; };; esac
+    fi
+    # Refuse to run a second verification when CLI has an active lock.
+    if [ -d /tmp/passwall-region-manager.lock ]; then
+      echo 'CLI lock is present; wait for the task or inspect it first' >&2
+      exit 2
+    fi
+    : > "$DIR/latest.log"
+    ( "$BIN" verify "$region" > "$DIR/latest.log" 2>&1; printf '%s\n' "$?" > "$DIR/exit-code" ) </dev/null >/dev/null 2>&1 &
+    printf '%s\n' "$!" > "$DIR/pid"
+    echo "started: $region" ;;
+  latest) tail -n 100 "$DIR/latest.log" 2>/dev/null || true ;;
+  *) echo 'usage: prm-web scan|status|plan|logs|state|start REGION|latest' >&2; exit 2;;
+esac
