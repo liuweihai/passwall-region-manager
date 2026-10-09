@@ -606,6 +606,7 @@ start() {
   echo started
 }
 stop() {
+  safe_test_stop
   probe_clear
   test_clear
   if [ -f "$PID" ]; then
