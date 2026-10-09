@@ -6,7 +6,16 @@
 
 var CMD='/usr/libexec/bypass-failover-web';
 var header, guide, advanced, events, addrInput, testInput, proxyInput, lastStatus, bootBox;
-var safeResult, safePrevious='';
+var safeResult, safeProgress, safePrevious='', safeRemaining=0, safeState='idle';
+function paintSafeCountdown() {
+ if (!safeResult) return;
+ safeResult.textContent=safeState==='running'?
+  T('隔离规则回滚倒计时：','Isolated rollback countdown: ')+safeRemaining+T(' 秒',' seconds'):
+  safeState==='passed'?T('60 秒回滚验收通过（隔离规则）','Isolated rule rollback passed'):
+  safeState==='failed'?T('回滚验收未通过，请查看日志','Rollback verification failed; see logs'):
+  safeState==='stopped'?T('测试已取消','Test cancelled'):T('当前未运行安全回滚测试','No safe rollback test active');
+ if (safeProgress) safeProgress.value=safeState==='running'?60-safeRemaining:safeState==='passed'?60:0;
+}
 function isZh() {
  var lang=String(L.env.lang || '').toLowerCase().replace('_','-');
  if (lang.indexOf('zh')===0) return true;
@@ -128,11 +137,9 @@ function reload() {
  return Promise.all([run('status'),run('logs'),run('boot-status'),run('safe-test-status')]).then(function(a){
   var lines=a[3].trim().split('\n');
   var state=lines[0]||'idle', remain=(lines[1]||'').replace('remaining=','');
-  if (safeResult) safeResult.textContent=state==='running'?
-   T('安全回滚倒计时：','Safe rollback countdown: ')+remain+T(' 秒（不改变真实流量）',' seconds (no traffic redirected)'):
-   state==='passed'?T('60 秒回滚验收通过（仅模拟测试）','60s dry-run rollback passed'):
-   state==='failed'?T('回滚验收未通过，请查看日志','Rollback verification failed; see logs'):
-   state==='stopped'?T('测试已取消','Test cancelled'):T('当前未运行安全回滚测试','No safe rollback test active');
+  safeState=state;
+  if (state==='running') safeRemaining=Math.max(0,Math.min(60,Number(remain)||0));
+  paintSafeCountdown();
   if(state!==safePrevious && safePrevious==='running' && state==='passed')
    message(T('安全回滚测试成功','Safe rollback test passed'));
   if(state!==safePrevious && safePrevious==='running' && state==='failed')
@@ -161,6 +168,7 @@ return view.extend({
    E('h4',{},T('60 秒安全回滚测试（不影响真实网络）','60-second safe rollback dry run')),
    E('p',{},T('创建不影响正常流量的隔离 nft 表和策略路由规则，60 秒到期后撤销并核验。','Runs a 60-second server-side rollback rehearsal. No routing, nftables or client traffic changes. Continues if browser closes.')),
    safeResult=E('p',{},T('当前未运行安全回滚测试','No safe rollback test active')),
+   safeProgress=E('progress',{'max':60,'value':0,'style':'width:100%;max-width:430px;display:block'}),
    E('button',{'class':'btn cbi-button-action','click':function(){
     run('safe-test-start').then(function(){message(T('已启动 60 秒安全测试','60-second dry run started'));return reload();}).catch(showError);
    }},T('运行 60 秒安全回滚测试','Start safe rollback dry run')),
@@ -241,6 +249,9 @@ return view.extend({
   renderBoot(data[2]);
   lastStatus=data[0];
   poll.add(reload,5);
+  poll.add(function(){
+   if (safeState==='running' && safeRemaining>0) {safeRemaining--;paintSafeCountdown();}
+  },1);
   return E('div',{},[
    E('h2',{},T('智能网络保护','Smart network protection')),
    E('p',{},T('旁路由异常时，尽可能保障网络正常访问。首次使用请从第一步开始。','Help keep the network connected if a bypass router fails. Start at step one.')),
