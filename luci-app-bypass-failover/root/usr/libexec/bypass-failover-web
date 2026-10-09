@@ -5,6 +5,9 @@ case "${1:-status}" in
  status|check|check-proxy|preflight|logs|test-start|test-stop) exec "$BIN" "$1" ;;
  auto|direct) exec "$BIN" "$1" ;;
  set-bypass)
+  current_mode=$(uci -q get bypass_failover.main.mode || echo direct)
+  [ "$current_mode" = direct ] || { echo 'Switch to direct before changing bypass address' >&2; exit 2; }
+  [ ! -f /tmp/bypass-failover-test.expires ] || { echo 'Stop temporary test first' >&2; exit 2; }
   ip="${2:-}"
   case "$ip" in ''|*[!0-9.]*|.*|*..*|*.) echo 'Invalid bypass IP' >&2; exit 2;; esac
   printf '%s\n' "$ip" | awk -F. 'NF==4 {for(i=1;i<=4;i++) if($i !~ /^[0-9]+$/ || $i>255 || length($i)>3) exit 1; exit 0} {exit 1}' || exit 2
