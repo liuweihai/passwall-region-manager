@@ -15,6 +15,7 @@ TEST_NFT=bypass_failover_test
 TEST_EXP=/tmp/bypass-failover-test.expires
 TEST_PID=/tmp/bypass-failover-test-watchdog.pid
 FULL_OWNED=/tmp/bypass-failover-route.owned
+REDIRECT_SAVE=/tmp/bypass-failover-send-redirects.old
 PROBE_TABLE=203
 PROBE_MARK=0x4248
 PROBE_NFT=bypass_failover_probe
@@ -114,6 +115,30 @@ check_base() {
   ping -c 1 -W 2 "$BYPASS" >/dev/null 2>&1 &&
     nslookup www.baidu.com "$BYPASS" >/dev/null 2>&1
 }
+# Linux can tell same-LAN clients to bypass the primary router via ICMP
+# Redirect. Save both knobs (the effective value uses max(all, interface)).
+redirects_restore() {
+  [ -f "$REDIRECT_SAVE" ] || return 0
+  read was_all was_lan < "$REDIRECT_SAVE" || return 1
+  all=/proc/sys/net/ipv4/conf/all/send_redirects
+  one=/proc/sys/net/ipv4/conf/"$(val lan br-lan)"/send_redirects
+  case "$was_all:$was_lan" in 0:0|0:1|1:0|1:1) ;; *) return 1;; esac
+  [ -w "$all" ] && [ -w "$one" ] || return 1
+  [ "$(cat "$all")" = 0 ] && printf '%s\n' "$was_all" > "$all"
+  [ "$(cat "$one")" = 0 ] && printf '%s\n' "$was_lan" > "$one"
+  rm -f "$REDIRECT_SAVE"
+}
+redirects_disable() {
+  all=/proc/sys/net/ipv4/conf/all/send_redirects
+  one=/proc/sys/net/ipv4/conf/"$LAN"/send_redirects
+  [ -r "$all" ] && [ -r "$one" ] && [ -w "$all" ] && [ -w "$one" ] || return 1
+  if [ ! -f "$REDIRECT_SAVE" ]; then
+    printf '%s %s\n' "$(cat "$all")" "$(cat "$one")" > "$REDIRECT_SAVE" || return 1
+  fi
+  printf '0\n' > "$all" || { redirects_restore; return 1; }
+  printf '0\n' > "$one" || { redirects_restore; return 1; }
+  [ "$(cat "$all")" = 0 ] && [ "$(cat "$one")" = 0 ]
+}
 clear_route() {
   if [ -f "$FULL_OWNED" ] || nft list table inet "$NFT" >/dev/null 2>&1; then
     nft delete table inet "$NFT" 2>/dev/null || true
@@ -122,6 +147,7 @@ clear_route() {
     done
     ip -4 route flush table "$TABLE" 2>/dev/null || true
     rm -f "$FULL_OWNED"
+    redirects_restore || say '恢复 ICMP Redirect 原配置失败'
   fi
   echo direct > "$STATE"
 }
@@ -144,6 +170,7 @@ use_bypass() {
   ip -4 rule show | grep -q '^10201:' && return 1
   nft list table inet "$NFT" >/dev/null 2>&1 && return 1
   : > "$FULL_OWNED"
+  redirects_disable || { clear_route; return 1; }
   ip -4 route replace default via "$BYPASS" dev "$LAN" table "$TABLE" || { clear_route; return 1; }
   nft -f - <<EOF
 table inet $NFT {
@@ -171,6 +198,7 @@ test_clear() {
    done
    ip -4 route flush table "$TEST_TABLE" 2>/dev/null || true
    rm -f "$TEST_EXP"
+   redirects_restore || say '恢复 ICMP Redirect 原配置失败'
  fi
 }
 test_status() {
@@ -240,6 +268,8 @@ test_start() {
  nft list table inet "$TEST_NFT" >/dev/null 2>&1 && { echo 'test nft table already exists' >&2; return 1; }
  deadline=$(($(date +%s)+60))
  echo "$deadline" > "$TEST_EXP"
+ # Suppress redirects only during the temporary test and restore afterwards.
+ redirects_disable || { test_clear; return 1; }
  # Install independent, TEST ONLY rules; never touch production table 201.
  # Marking excludes frames emitted by the bypass MAC to prevent feedback loops.
  ip -4 route replace default via "$BYPASS" dev "$LAN" table "$TEST_TABLE" || { test_clear; return 1; }
