@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bypass Failover v0.3.0-beta2 (OpenWrt 24.10 / fw4) - IPv4 only.
+# Bypass Failover v0.3.0-beta3 (OpenWrt 24.10 / fw4) - IPv4 only.
 # Installed ONLY on the primary OpenWrt. Disabled by default.
 set -u
 CFG=/etc/config/bypass_failover
@@ -204,6 +204,11 @@ test_clear() {
    redirects_restore || say '恢复 ICMP Redirect 原配置失败'
  fi
 }
+# Read only our temporary nft counters; values are reset with the test table.
+test_packets() {
+ nft -a list chain inet "$TEST_NFT" "$1" 2>/dev/null |
+   awk '/counter packets/{for(i=1;i<=NF;i++) if($i=="packets"){print $(i+1); exit}}'
+}
 test_status() {
  # If the detached rollback worker has disappeared, immediately withdraw any
  # temporary forwarding instead of waiting for the nominal deadline.
@@ -222,7 +227,8 @@ test_status() {
   remain=$((until-$(date +%s)))
   if [ "$remain" -gt 0 ] && nft list table inet "$TEST_NFT" >/dev/null 2>&1; then
    echo "test=running"; echo "test_remaining=$remain"; echo "test_client=$(val test_client '')"
-   nft -a list chain inet "$TEST_NFT" mark_test 2>/dev/null | awk '/counter packets/{for(i=1;i<=NF;i++) if($i=="packets"){print "test_packets="$(i+1); exit}}'
+   echo "test_packets=$(test_packets mark_test)"
+   echo "test_snat_packets=$(test_packets test_snat)"
    return
   fi
   test_clear
@@ -236,7 +242,21 @@ test_watchdog() {
   [ -f "$TEST_EXP" ] || break
   expires=$(cat "$TEST_EXP" 2>/dev/null || echo 0)
   [ "$expires" = "$expected" ] || break
-  [ "$(date +%s)" -lt "$expires" ] || { test_clear; say '单设备测试到期，已自动撤销规则'; break; }
+  now=$(date +%s)
+  [ "$now" -lt "$expires" ] || { test_clear; say '单设备测试到期，已自动撤销规则'; break; }
+  # If packets match the client but none reach postrouting SNAT after 12s,
+  # abort early rather than holding a broken connection for 60s.
+  if [ $((expires-now)) -le 48 ]; then
+    ingress=$(test_packets mark_test)
+    egress=$(test_packets test_snat)
+    case "$ingress:$egress" in *[!0-9:]*|:*|*:) ;; *)
+      if [ "$ingress" -gt 0 ] && [ "$egress" -eq 0 ]; then
+        say "单设备测试检测到转发异常：入口 $ingress 包、SNAT 0 包，提前撤销引流"
+        test_clear
+        break
+      fi ;;
+    esac
+  fi
   sleep 2
  done
  rm -f "$TEST_PID"
@@ -322,6 +342,7 @@ status() {
   echo "dns_strategy=primary-router"
   echo "ipv6_strategy=unchanged"
   echo "test_client=$(val test_client '')"
+  echo "dhcp_router=$(uci -q get dhcp.lan.dhcp_option 2>/dev/null | tr '\n' ',' || true)"
   test_status
   echo "notifications=$(case "$(val webhook '')" in https://*) echo configured;; *) echo disabled;; esac)"
 }
