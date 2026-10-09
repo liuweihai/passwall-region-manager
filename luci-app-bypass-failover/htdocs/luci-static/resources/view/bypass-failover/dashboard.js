@@ -53,7 +53,7 @@ function renderSummary(data) {
   E('p',{},active?T('正在使用旁路由；出现异常时将尝试切回主路由。','Using bypass router with fallback enabled.'):
     T('你的网络保持原样。完成检查后，才能开启自动保护。','Your network is unchanged. Complete checks before enabling protection.')),
   E('p',{},s.test==='running'?
-    T('临时测试进行中，剩余约 '+(s.test_remaining||'?')+' 秒；结束后自动尝试撤销。','Temporary test running; about '+(s.test_remaining||'?')+' seconds left.'):
+    T('临时测试进行中，剩余约 '+(s.test_remaining||'?')+' 秒；已匹配 '+(s.test_packets||'0')+' 个数据包（不代表代理成功）。','Temporary test: '+(s.test_remaining||'?')+' seconds left; '+(s.test_packets||'0')+' matched packets (not proof of proxy).'):
     s.test==='rolled_back'?
     T('检测到测试保护进程异常，已尝试撤销测试规则。','Test watchdog failed; temporary rules were withdrawn where possible.'):
     T('当前没有运行临时引流测试。','No temporary route test is active.'))
