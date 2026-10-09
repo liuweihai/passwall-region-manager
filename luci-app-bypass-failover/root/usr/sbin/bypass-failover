@@ -418,7 +418,7 @@ test_status() {
 }
 test_watchdog() {
  expected=$1
- echo "$" > "$TEST_PID"
+ echo "$$" > "$TEST_PID"
  bypass_failures=0
  while :; do
   [ -f "$TEST_EXP" ] || break
