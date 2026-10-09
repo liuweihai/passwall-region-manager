@@ -1,0 +1,7 @@
+config settings 'main'
+ option role 'side'
+ option side ''
+ option primary ''
+ option client ''
+ option lan 'br-lan'
+ option allow_apply '0'
