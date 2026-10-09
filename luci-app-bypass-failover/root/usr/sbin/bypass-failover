@@ -477,7 +477,8 @@ case "${1:-status}" in
   daemon) daemon;;
   status) status;;
   check) check_config && { check_base && echo healthy || echo unhealthy; };;
-  topology-audit) topology_audit;;\n  health-report) health_report;;
+  topology-audit) topology_audit;;
+  health-report) health_report;;
   check-proxy)
     if ! check_config; then echo config_invalid
     elif ! check_base; then echo bypass_unreachable
