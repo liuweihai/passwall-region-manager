@@ -3,6 +3,7 @@
 # NEVER installed or started on the primary router.
 set -u
 TABLE=bypass_failover_side
+LEASE=/tmp/bypass-failover-side-lease.pid
 CFG=/etc/config/bypass_failover_side
 get() { uci -q get "bypass_failover_side.main.$1" 2>/dev/null || printf '%s' "$2"; }
 valid_ip() {
@@ -54,7 +55,15 @@ table inet $TABLE {
 }
 EOF
  nft list table inet "$TABLE" >/dev/null 2>&1 || return 1
- echo 'companion applied; NOT proof of client connectivity; rollback with remove'
+ # Short, detached safety lease. No permanent NAT rule without separately
+ # implemented mutual heartbeat. Applying again does not extend the lease.
+ ( "$0" lease-expire </dev/null >/dev/null 2>&1 & )
+ echo 'companion applied for up to 60 seconds; not a connectivity proof'
+}
+lease_expire() {
+ # Bound trial to 60 seconds even if the controlling browser disconnects.
+ sleep 60
+ nft delete table inet "$TABLE" >/dev/null 2>&1 || true
 }
 remove() {
  # Own table only; never touch PassWall/fw4/custom NAT tables.
@@ -67,5 +76,6 @@ case "${1:-audit}" in
  audit) audit;;
  apply) apply;;
  remove) remove;;
+ lease-expire) lease_expire;;
  *) echo 'usage: audit|apply|remove' >&2; exit 2;;
 esac
