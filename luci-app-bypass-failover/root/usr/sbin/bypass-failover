@@ -84,7 +84,7 @@ safe_test_finish() {
 }
 safe_test_worker() {
  deadline=$1
- echo "$" > "$SAFE_TEST_DIR/pid"
+ # The worker is cancelled via its owned directory, not an unreliable PID file.
  while [ -d "$SAFE_TEST_DIR" ] && [ "$(cat "$SAFE_TEST_DIR/deadline" 2>/dev/null)" = "$deadline" ]; do
   now=$(date +%s)
   if [ "$now" -ge "$deadline" ]; then safe_test_finish "$deadline"; return; fi
