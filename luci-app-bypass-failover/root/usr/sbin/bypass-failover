@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bypass Failover v0.3.0-beta9 (OpenWrt 24.10 / fw4) - IPv4 only.
+# Bypass Failover v0.3.0-beta10 (OpenWrt 24.10 / fw4) - IPv4 only.
 # Installed ONLY on the primary OpenWrt. Disabled by default.
 set -u
 CFG=/etc/config/bypass_failover
@@ -415,6 +415,23 @@ EOF
  echo 'test_started'
 }
 
+# Network event callback. Do not start client forwarding from an interface event.
+# A stale owned policy is withdrawn; direct mode remains the safe default.
+event_check() {
+ event_name=${1:-unknown}
+ case "$event_name" in ifup|ifdown|ifupdate|reload) ;; *) return 0;; esac
+ if [ -f "$FULL_OWNED" ]; then
+  if ! nft list table inet "$NFT" >/dev/null 2>&1; then
+   # Losing marking while retaining policy routes is a partial failure.
+   # Remove only resources for which this installation has an owner marker.
+   say "网络事件 $event_name：自有规则已丢失，撤销残留策略并恢复直连"
+   clear_route
+  elif [ "$(mode)" != auto ]; then
+   say "网络事件 $event_name：当前直连模式，清理遗留的自有策略"
+   clear_route
+  fi
+ fi
+}
 mode() { val mode direct; }
 status() {
   echo "mode=$(mode)"
@@ -435,6 +452,7 @@ status() {
   echo "health_evidence=side_icmp_then_routed_https"
   echo "client_return_path=unverified"
   echo "fallback_policy=main"
+  echo "network_event_handler=installed"
   echo "auto_safety_lock=single_arm_return_unverified"
   echo "client_test_safety_lock=single_arm_return_unverified"
   echo "dhcp_router=$(uci -q get dhcp.lan.dhcp_option 2>/dev/null | tr '\n' ',' || true)"
@@ -494,6 +512,7 @@ case "${1:-status}" in
   check) check_config && { check_base && echo healthy || echo unhealthy; };;
   topology-audit) topology_audit;;
   fallback-audit) fallback_audit;;
+  event-check) event_check "${2:-unknown}";;
   health-report) health_report;;
   check-proxy)
     if ! check_config; then echo config_invalid
