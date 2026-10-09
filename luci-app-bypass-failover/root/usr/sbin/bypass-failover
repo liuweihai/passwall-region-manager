@@ -107,7 +107,7 @@ test_status() {
 }
 test_watchdog() {
  expected=$1
- echo "$" > "$TEST_PID"
+ echo "$$" > "$TEST_PID"
  while :; do
   [ -f "$TEST_EXP" ] || break
   expires=$(cat "$TEST_EXP" 2>/dev/null || echo 0)
