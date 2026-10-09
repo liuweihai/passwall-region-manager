@@ -4,6 +4,19 @@ BIN=/usr/sbin/bypass-failover
 case "${1:-status}" in
  status|check|check-proxy|preflight|logs|test-start|test-stop) exec "$BIN" "$1" ;;
  auto|direct) exec "$BIN" "$1" ;;
+ set-proxy)
+  bypass=$(uci -q get bypass_failover.main.bypass || true)
+  endpoint="${2:-}"
+  case "$endpoint" in
+    http://"$bypass":*|socks5h://"$bypass":*) ;;
+    *) echo 'Proxy endpoint must use the configured bypass IP' >&2; exit 2 ;;
+  esac
+  port=${endpoint##*:}
+  case "$port" in ''|*[!0-9]*) exit 2;; esac
+  [ "$port" -ge 1 ] && [ "$port" -le 65535 ] || exit 2
+  uci set "bypass_failover.main.proxy_endpoint=$endpoint"
+  uci commit bypass_failover
+  echo saved ;;
  set-client)
   ip="${2:-}"
   case "$ip" in ''|*[!0-9.]*|.*|*..*|*.) echo "Invalid client IPv4" >&2; exit 2;; esac
