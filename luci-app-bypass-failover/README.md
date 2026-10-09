@@ -1,4 +1,4 @@
-# 智能网络保护 / Bypass Failover — v0.3.0-beta3
+# 智能网络保护 / Bypass Failover — v0.3.0-beta4
 
 为 OpenWrt 主路由设计的旁路由故障保护插件。**当前是测试版，尚未通过真实单臂旁路由的完整自动接管验收。请不要把它当成已完成的全屋容灾产品。**
 
@@ -9,6 +9,12 @@
 3. 「开机自动启动」可以独立选择；开启开机启动 **不等于** 开启全屋引流。
 4. 单台设备的临时 TCP 引流测试目前属于 **高级设置**，最长约 60 秒，看门狗尝试自动清理，另有手动撤销入口。测试存在短暂断网风险，仅限可恢复的实验设备和维护窗口。
 5. 全屋保护继续锁定：需要真实代理出口、回程、防环路及故障回退验证，不能手动修改 `forwarding_verified` 跳过验证。
+
+## v0.3.0-beta4 变更
+
+- 取消「必须先直连 Cloudflare 成功才能检测旁路由路径」这一错误前置条件。
+- 新增 `path_reachable_unverified` / `path_unreachable` 等明确状态；成功只表示主路由发出的标记 TCP 请求可达，**不能说明客户端流量、代理出口或回程已成功**。
+- 代理出口没有独立证据时仍保持 `health` 失败、禁止自动引流；默认仍为直连。
 
 ## v0.3.0-beta3 变更
 
@@ -38,6 +44,6 @@
 
 ## 安装包
 
-GitHub Actions: `.github/workflows/build-bypass-failover.yml`。构建脚本：`bash luci-app-bypass-failover/build-ipk.sh`；预期产物：`dist/luci-app-bypass-failover_0.3.0-beta3_all.ipk`。**只有构建工作流成功时才说明包已生成，语法检查和构建成功也不代表实机容灾通过。**
+GitHub Actions: `.github/workflows/build-bypass-failover.yml`。构建脚本：`bash luci-app-bypass-failover/build-ipk.sh`；预期产物：`dist/luci-app-bypass-failover_0.3.0-beta4_all.ipk`。**只有构建工作流成功时才说明包已生成，语法检查和构建成功也不代表实机容灾通过。**
 
 插件应安装在 **支持 fw4/nftables 的主 OpenWrt 路由器**，不可和旁路由上的多国家节点管理器混装。IPv4 主路由 IP、旁路由 IP 均由用户填写或从本地配置读取，不写死任何家庭 LAN 地址。
