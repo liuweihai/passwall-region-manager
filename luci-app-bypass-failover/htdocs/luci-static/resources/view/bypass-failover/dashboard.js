@@ -54,7 +54,7 @@ function renderSummary(data) {
   E('p',{},active?T('正在使用旁路由；出现异常时将尝试切回主路由。','Using bypass router with fallback enabled.'):
     T('你的网络保持原样。完成检查后，才能开启自动保护。','Your network is unchanged. Complete checks before enabling protection.')),
   E('p',{},s.test==='running'?
-    T('临时测试进行中，剩余约 '+(s.test_remaining||'?')+' 秒；已匹配 '+(s.test_packets||'0')+' 个数据包（不代表代理成功）。','Temporary test: '+(s.test_remaining||'?')+' seconds left; '+(s.test_packets||'0')+' matched packets (not proof of proxy).'):
+    T('临时测试剩余约 '+(s.test_remaining||'?')+' 秒；入口 '+(s.test_packets||'0')+' 包、SNAT '+(s.test_snat_packets||'0')+' 包（不代表代理成功）。','Temporary test: '+(s.test_remaining||'?')+'s; marked '+(s.test_packets||'0')+', SNAT '+(s.test_snat_packets||'0')+' packets (not proxy proof).'):
     s.test==='rolled_back'?
     T('检测到测试保护进程异常，已尝试撤销测试规则。','Test watchdog failed; temporary rules were withdrawn where possible.'):
     T('当前没有运行临时引流测试。','No temporary route test is active.'))
@@ -169,7 +169,7 @@ return view.extend({
    ' ',
    E('button',{'class':'btn cbi-button-negative','click':function(){run('test-stop').then(reload).catch(showError);}},T('撤销测试','Cancel test')),
    E('h4',{},T('浏览器端到端网络试验（仍属测试功能）','Browser end-to-end connectivity trial')),
-   E('p',{},T('请在上方填写当前这台设备的 IP，并用这台设备的浏览器执行。系统会临时引流、请求一个 HTTPS 地址、读取命中数，再立即撤销测试。仅证明请求通过和策略命中，不代表代理节点出口已验证。','Set the IP of this browser device above. This tries HTTPS over temporary routing, reads packet matches, then rolls back immediately. It does not prove proxy-node egress.')),
+   E('p',{},T('请在上方填写当前这台设备的 IP，并用这台设备的浏览器执行。系统会临时引流、请求一个 HTTPS 地址、读取入口及 SNAT 计数，再立即撤销测试。成功请求也不代表代理节点出口已验证。','Set the IP of this browser device above. This tries HTTPS over temporary routing, reads packet matches, then rolls back immediately. It does not prove proxy-node egress.')),
    E('button',{'class':'btn cbi-button','click':function(){
      var target=testInput.value.trim();
      if (!target) { message(T('请先填写当前浏览器设备的 IPv4 地址。','Enter this browser device IPv4 first.'),true); return; }
