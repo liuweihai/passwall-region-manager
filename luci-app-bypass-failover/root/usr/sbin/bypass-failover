@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bypass Failover v0.3.0-beta12 (OpenWrt 24.10 / fw4) - IPv4 only.
+# Bypass Failover v0.3.0-beta13 (OpenWrt 24.10 / fw4) - IPv4 only.
 # Installed ONLY on the primary OpenWrt. Disabled by default.
 set -u
 CFG=/etc/config/bypass_failover
@@ -20,6 +20,73 @@ PROBE_TABLE=203
 PROBE_MARK=0x4248
 PROBE_NFT=bypass_failover_probe
 PROBE_LOCK=/tmp/bypass-failover-probe.lock
+SAFE_TEST_DIR=/tmp/bypass-failover-safe-rollback
+SAFE_TEST_LAST=/tmp/bypass-failover-safe-last
+safe_test_stop() {
+ if [ -d "$SAFE_TEST_DIR" ]; then
+  rm -f "$SAFE_TEST_DIR/deadline" "$SAFE_TEST_DIR/pid"
+  rmdir "$SAFE_TEST_DIR" 2>/dev/null || true
+  printf 'stopped\n' > "$SAFE_TEST_LAST"
+  say '安全回滚测试：已手动停止；未修改任何路由或防火墙规则'
+ fi
+}
+safe_test_resources() {
+ [ ! -e "$TEST_EXP" ] &&
+ [ ! -f "$FULL_OWNED" ] &&
+ ! nft list table inet "$TEST_NFT" >/dev/null 2>&1 &&
+ ! ip -4 rule show | grep -q '^10200:' &&
+ [ -z "$(ip -4 route show table "$TEST_TABLE" 2>/dev/null)" ]
+}
+safe_test_finish() {
+ expected=$1
+ [ -d "$SAFE_TEST_DIR" ] || return 0
+ [ "$(cat "$SAFE_TEST_DIR/deadline" 2>/dev/null)" = "$expected" ] || return 0
+ rm -f "$SAFE_TEST_DIR/deadline" "$SAFE_TEST_DIR/pid"
+ rmdir "$SAFE_TEST_DIR" 2>/dev/null || true
+ if safe_test_resources; then
+  printf 'passed\n' > "$SAFE_TEST_LAST"
+  say '安全回滚测试：60 秒到期，后台执行清理；真实转发规则无残留，验收通过（不代表真实引流回滚通过）'
+ else
+  printf 'failed\n' > "$SAFE_TEST_LAST"
+  say '安全回滚测试：60 秒到期，但发现转发测试资源或规则占用；验收未通过，未删除无法确定所有权的规则'
+ fi
+}
+safe_test_worker() {
+ deadline=$1
+ echo "$" > "$SAFE_TEST_DIR/pid"
+ while [ -d "$SAFE_TEST_DIR" ] && [ "$(cat "$SAFE_TEST_DIR/deadline" 2>/dev/null)" = "$deadline" ]; do
+  now=$(date +%s)
+  if [ "$now" -ge "$deadline" ]; then safe_test_finish "$deadline"; return; fi
+  sleep 2
+ done
+}
+safe_test_start() {
+ [ "$(val mode direct)" = direct ] || { echo 'Safe test requires direct mode' >&2; return 1; }
+ [ ! -d "$SAFE_TEST_DIR" ] || { echo 'Safe test already running' >&2; return 1; }
+ safe_test_resources || { echo 'Test resources not clean; refusing to run' >&2; return 1; }
+ mkdir "$SAFE_TEST_DIR" || return 1
+ deadline=$(( $(date +%s) + 60 ))
+ printf '%s\n' "$deadline" > "$SAFE_TEST_DIR/deadline"
+ printf 'running\n' > "$SAFE_TEST_LAST"
+ ( "$0" safe-test-worker "$deadline" </dev/null >/dev/null 2>&1 & )
+ say "安全回滚测试启动：60 秒倒计时，截止时间戳=$deadline；不创建 nft、策略路由、SNAT，也不改变客户端网络"
+ echo started
+}
+safe_test_status() {
+ if [ -d "$SAFE_TEST_DIR" ]; then
+  deadline=$(cat "$SAFE_TEST_DIR/deadline" 2>/dev/null || echo 0)
+  case "$deadline" in ''|*[!0-9]*) deadline=0;; esac
+  remaining=$((deadline - $(date +%s)))
+  if [ "$remaining" -le 0 ]; then
+   safe_test_finish "$deadline"
+  else
+   echo running
+   echo "remaining=$remaining"
+   return 0
+  fi
+ fi
+ cat "$SAFE_TEST_LAST" 2>/dev/null || echo idle
+}
 val() { uci -q get "bypass_failover.main.$1" 2>/dev/null || printf '%s' "$2"; }
 say() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG"; tail -n 400 "$LOG" > "$LOG.new"; mv "$LOG.new" "$LOG"; }
 notify() {
@@ -531,6 +598,10 @@ case "${1:-status}" in
         if health; then echo proxy_healthy; else echo proxy_unhealthy; fi
       fi
     fi ;;
+  safe-test-start) safe_test_start;;
+  safe-test-worker) safe_test_worker "${2:-}";;
+  safe-test-status) safe_test_status;;
+  safe-test-stop) safe_test_stop;;
   test-start) test_start;;
   test-stop) test_clear; say '单设备测试手动停止';;
   test-watchdog) test_watchdog "$2";;
