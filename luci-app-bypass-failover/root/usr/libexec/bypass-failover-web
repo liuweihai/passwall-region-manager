@@ -1,8 +1,15 @@
 #!/bin/sh
-set -u
+set -eu
 BIN=/usr/sbin/bypass-failover
 case "${1:-status}" in
- status|check|check-proxy|preflight|logs) exec "$BIN" "$1" ;;
+ status|check|check-proxy|preflight|logs|test-start|test-stop) exec "$BIN" "$1" ;;
  auto|direct) exec "$BIN" "$1" ;;
+ set-client)
+  ip="${2:-}"
+  case "$ip" in ''|*[!0-9.]*|.*|*..*|*.) echo "Invalid client IPv4" >&2; exit 2;; esac
+  printf '%s\n' "$ip" | awk -F. 'NF==4 {for(i=1;i<=4;i++) if($i !~ /^[0-9]+$/ || $i>255 || length($i)>3) exit 1; exit 0} {exit 1}' || exit 2
+  uci set "bypass_failover.main.test_client=$ip"
+  uci commit bypass_failover
+  echo saved ;;
  *) echo 'Unsupported operation' >&2; exit 2 ;;
 esac
