@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bypass Failover v0.3.0-rc2 (OpenWrt 24.10 / fw4) - IPv4 only.
+# Bypass Failover v0.3.0-rc3 (OpenWrt 24.10 / fw4) - IPv4 only.
 # Installed ONLY on the primary OpenWrt. Disabled by default.
 set -u
 CFG=/etc/config/bypass_failover
@@ -439,7 +439,7 @@ test_watchdog() {
       break
     fi
   fi
-  # If packets match the client but none reach postrouting SNAT after 12s,
+  # If packets match the client but none reach postrouting after 12s,
   # abort early rather than holding a broken connection for 60s.
   if [ $((expires-now)) -le 48 ]; then
     ingress=$(test_packets mark_test)
@@ -457,10 +457,9 @@ test_watchdog() {
  rm -f "$TEST_PID"
 }
 test_start() {
- # Single-arm return path remains unverified. Never redirect real clients
- # until a non-disruptive, proven return path is available.
- echo 'single-arm client return path is unverified; client route test is safety locked' >&2
- return 1
+ # Opt-in single-client trial: only a single fixed HTTPS target is redirected.
+ # No SNAT: let the side router respond directly to the LAN client.
+ # Automatic rollback and one-click test-stop are mandatory.
  [ "$(mode)" = direct ] || { echo 'only permitted in direct mode' >&2; return 1; }
  [ ! -f "$TEST_EXP" ] || { echo 'test already running; stop first' >&2; return 1; }
  check_config || return 1
@@ -507,7 +506,7 @@ test_start() {
 table inet $TEST_NFT {
  chain mark_test {
   type filter hook prerouting priority mangle; policy accept;
-  iifname "$LAN" ether saddr $client_mac ether saddr != $mac meta mark 0x0 meta l4proto tcp ip saddr $client ip daddr != 10.0.0.0/8 ip daddr != 172.16.0.0/12 ip daddr != 192.168.0.0/16 ip daddr != 127.0.0.0/8 ip daddr != 169.254.0.0/16 ip daddr != 224.0.0.0/4 counter meta mark set $TEST_MARK
+  iifname "$LAN" ether saddr $client_mac ether saddr != $mac meta mark 0x0 meta l4proto tcp tcp dport 443 ip daddr 1.1.1.1 ip saddr $client ip daddr != 10.0.0.0/8 ip daddr != 172.16.0.0/12 ip daddr != 192.168.0.0/16 ip daddr != 127.0.0.0/8 ip daddr != 169.254.0.0/16 ip daddr != 224.0.0.0/4 counter meta mark set $TEST_MARK
  }
  chain test_egress {
   type filter hook postrouting priority mangle; policy accept;
@@ -533,7 +532,7 @@ EOF
  if ! [ -f "$TEST_PID" ] || ! kill -0 "$(cat "$TEST_PID")" 2>/dev/null; then
   test_clear; echo 'watchdog unavailable; test aborted' >&2; return 1
  fi
- say "单设备真实引流测试已启动：$client 仅 HTTPS 1.1.1.1:443，经 $BYPASS；SNAT 到主路由确保回程；60 秒自动撤销，其他流量直连"
+ say "单设备真实引流测试启动：$client 的 HTTPS 1.1.1.1:443 经 $BYPASS，未做 SNAT；60 秒到期或故障后撤销，其余流量直连"
  echo 'test_started'
 }
 
