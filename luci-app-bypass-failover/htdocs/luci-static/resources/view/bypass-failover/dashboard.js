@@ -6,6 +6,7 @@
 
 var CMD='/usr/libexec/bypass-failover-web';
 var header, guide, advanced, events, addrInput, testInput, proxyInput, lastStatus, bootBox;
+var safeResult, safePrevious='';
 function isZh() {
  var lang=String(L.env.lang || '').toLowerCase().replace('_','-');
  if (lang.indexOf('zh')===0) return true;
@@ -124,7 +125,19 @@ function renderBoot(status) {
  );
 }
 function reload() {
- return Promise.all([run('status'),run('logs'),run('boot-status')]).then(function(a){
+ return Promise.all([run('status'),run('logs'),run('boot-status'),run('safe-test-status')]).then(function(a){
+  var lines=a[3].trim().split('\n');
+  var state=lines[0]||'idle', remain=(lines[1]||'').replace('remaining=','');
+  if (safeResult) safeResult.textContent=state==='running'?
+   T('安全回滚倒计时：','Safe rollback countdown: ')+remain+T(' 秒（不改变真实流量）',' seconds (no traffic redirected)'):
+   state==='passed'?T('60 秒回滚验收通过（仅模拟测试）','60s dry-run rollback passed'):
+   state==='failed'?T('回滚验收未通过，请查看日志','Rollback verification failed; see logs'):
+   state==='stopped'?T('测试已取消','Test cancelled'):T('当前未运行安全回滚测试','No safe rollback test active');
+  if(state!==safePrevious && safePrevious==='running' && state==='passed')
+   message(T('安全回滚测试成功','Safe rollback test passed'));
+  if(state!==safePrevious && safePrevious==='running' && state==='failed')
+   message(T('安全回滚测试失败，请查看日志','Safe rollback test failed; see logs'),true);
+  safePrevious=state;
   if (a[0] !== lastStatus) { renderSummary(a[0]); lastStatus=a[0]; }
   events.textContent=a[1]||T('暂无事件','No events');
   renderBoot(a[2]);
@@ -145,7 +158,17 @@ return view.extend({
   advanced=E('details',{'class':'cbi-section'},[
    E('summary',{'style':'cursor:pointer;font-weight:bold;padding:12px 0'},T('高级设置（了解网络的用户）','Advanced settings (experienced users)')),
    E('p',{},T('以下为维护工具。单设备透明 TCP 测试不再要求 SOCKS5；但真实代理、回程与回退仍需人工核验。','Maintenance tools. Transparent TCP test no longer requires SOCKS5; forwarding and rollback still need real-world verification.')),
-   E('h4',{},T('指定设备临时测试','Temporary single-client test')),
+   E('h4',{},T('60 秒安全回滚测试（不影响真实网络）','60-second safe rollback dry run')),
+   E('p',{},T('仅在后台启动 60 秒计时与清理验收，不修改路由、nftables 或客户端流量。关闭浏览器后后台仍继续执行；完成后核对规则残留。','Runs a 60-second server-side rollback rehearsal. No routing, nftables or client traffic changes. Continues if browser closes.')),
+   safeResult=E('p',{},T('当前未运行安全回滚测试','No safe rollback test active')),
+   E('button',{'class':'btn cbi-button-action','click':function(){
+    run('safe-test-start').then(function(){message(T('已启动 60 秒安全测试','60-second dry run started'));return reload();}).catch(showError);
+   }},T('运行 60 秒安全回滚测试','Start safe rollback dry run')),
+   ' ',
+   E('button',{'class':'btn cbi-button-negative','click':function(){
+    run('safe-test-stop').then(reload).catch(showError);
+   }},T('停止安全测试','Stop safe test')),
+      E('h4',{},T('指定设备临时测试','Temporary single-client test')),
    E('p',{},T('60 秒测试目前锁定：此前相同 LAN 的单臂旁路由引流导致客户端断网。当前外网探测仅验证主路由请求，无法证明客户端回程；完成安全回程方案后才会开放。','60-second test is locked: the prior same-LAN route disconnected a client. The router-originated probe does not validate client return traffic.')),
    testInput,' ',
    E('button',{'class':'btn cbi-button','click':function(){run('set-client',[testInput.value.trim()]).then(reload).catch(showError);}},T('保存测试设备','Save test client')),
