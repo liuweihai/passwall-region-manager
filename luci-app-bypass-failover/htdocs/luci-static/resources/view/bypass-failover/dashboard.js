@@ -38,7 +38,8 @@ function showError(e) {
   ['Proxy endpoint must',T('代理检测入口不正确。','Invalid proxy test endpoint.')],
   ['test client IP not configured',T('请先填写测试设备地址。','Enter a test client IP first.')],
   ['proxy exit check failed',T('代理出口测试尚未通过，未修改网络。','Proxy check failed; no routing changes made.')],
-  ['bypass connectivity check failed',T('旁路由连接检查失败，没有修改网络。','Bypass router unreachable; no routing changes made.')]
+  ['bypass connectivity check failed',T('旁路由连接检查失败，没有修改网络。','Bypass router unreachable; no routing changes made.')],
+  ['test client MAC not resolved',T('未发现测试设备，请先让该设备连接 Wi-Fi 并访问一个网页，再进行测试。','Test device not found. Connect it and open a page before retrying.')]
  ];
  dict.some(function(d){if(s.indexOf(d[0])>=0){s=d[1];return true;}return false;});
  message(s,true);
