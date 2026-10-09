@@ -38,7 +38,7 @@ case "${1:-}" in
   latest) tail -n 100 "$DIR/latest.log" 2>/dev/null || true ;;
   progress)
     total=$(cat "$DIR/total" 2>/dev/null || echo 0)
-    done_count=$(grep -Ec '验证通过:|验证失败:|HTTPS 未通过:|HTTPS正常但出口国家未确认:|出口国家不匹配:|探测失败:|未检测:' "$DIR/latest.log" 2>/dev/null || echo 0)
+    done_count=$(grep -Ec '验证通过:|验证失败:|HTTPS 未通过:|HTTPS正常但出口国家未确认:|出口国家不匹配:|探测失败:|未检测:' "$DIR/latest.log" 2>/dev/null) || done_count=0
     printf '%s/%s\n' "$done_count" "$total" ;;
   *) echo 'usage: prm-web scan|status|plan|logs|state|start REGION|latest' >&2; exit 2;;
 esac
