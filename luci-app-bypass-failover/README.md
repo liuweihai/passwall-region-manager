@@ -1,4 +1,4 @@
-# 智能网络保护 / Bypass Failover — v0.3.0-beta1
+# 智能网络保护 / Bypass Failover — v0.3.0-beta3
 
 为 OpenWrt 主路由设计的旁路由故障保护插件。**当前是测试版，尚未通过真实单臂旁路由的完整自动接管验收。请不要把它当成已完成的全屋容灾产品。**
 
@@ -9,6 +9,13 @@
 3. 「开机自动启动」可以独立选择；开启开机启动 **不等于** 开启全屋引流。
 4. 单台设备的临时 TCP 引流测试目前属于 **高级设置**，最长约 60 秒，看门狗尝试自动清理，另有手动撤销入口。测试存在短暂断网风险，仅限可恢复的实验设备和维护窗口。
 5. 全屋保护继续锁定：需要真实代理出口、回程、防环路及故障回退验证，不能手动修改 `forwarding_verified` 跳过验证。
+
+## v0.3.0-beta3 变更
+
+- 新增临时测试的入口匹配包数与 SNAT 出口包数，便于区分策略命中和实际转发阶段。
+- 临时测试开始约 12 秒后，如果已出现入口匹配包、但 SNAT 计数仍为零，自动提前撤销引流，不再一律等待 60 秒。
+- 以上修复提高诊断和回退安全性，**尚不能证明 Mac 访问百度的问题已经解决**；在独立回程验证完成前，全屋保护仍锁定。
+- 主路由 DHCP 保留 `3,主路由IP` 和 `6,主路由IP` 即可；插件不需要更改 DHCP 网关或 DNS。
 
 ## 已实现
 
@@ -31,6 +38,6 @@
 
 ## 安装包
 
-GitHub Actions: `.github/workflows/build-bypass-failover.yml`。构建脚本：`bash luci-app-bypass-failover/build-ipk.sh`；预期产物：`dist/luci-app-bypass-failover_0.3.0-beta1_all.ipk`。**只有构建工作流成功时才说明包已生成，语法检查和构建成功也不代表实机容灾通过。**
+GitHub Actions: `.github/workflows/build-bypass-failover.yml`。构建脚本：`bash luci-app-bypass-failover/build-ipk.sh`；预期产物：`dist/luci-app-bypass-failover_0.3.0-beta3_all.ipk`。**只有构建工作流成功时才说明包已生成，语法检查和构建成功也不代表实机容灾通过。**
 
 插件应安装在 **支持 fw4/nftables 的主 OpenWrt 路由器**，不可和旁路由上的多国家节点管理器混装。IPv4 主路由 IP、旁路由 IP 均由用户填写或从本地配置读取，不写死任何家庭 LAN 地址。
