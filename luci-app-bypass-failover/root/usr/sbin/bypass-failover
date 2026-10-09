@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bypass Failover v0.3.0-beta8 (OpenWrt 24.10 / fw4) - IPv4 only.
+# Bypass Failover v0.3.0-beta9 (OpenWrt 24.10 / fw4) - IPv4 only.
 # Installed ONLY on the primary OpenWrt. Disabled by default.
 set -u
 CFG=/etc/config/bypass_failover
@@ -155,17 +155,43 @@ redirects_disable() {
   printf '0\n' > "$one" || { redirects_restore; return 1; }
   [ "$(cat "$all")" = 0 ] && [ "$(cat "$one")" = 0 ]
 }
-clear_route() {
-  if [ -f "$FULL_OWNED" ] || nft list table inet "$NFT" >/dev/null 2>&1; then
-    nft delete table inet "$NFT" 2>/dev/null || true
-    while ip -4 rule show | grep -Eq '^10201:.*fwmark 0x4246 .*lookup 201'; do
-      ip -4 rule del priority 10201 fwmark "$MARK" table "$TABLE" 2>/dev/null || break
-    done
-    ip -4 route flush table "$TABLE" 2>/dev/null || true
-    rm -f "$FULL_OWNED"
-    redirects_restore || say '恢复 ICMP Redirect 原配置失败'
+# Never flush unowned routing table 201 or rules from another service.
+# The nft table has a reserved name but an unrelated table must not be deleted.
+owned_full() { [ -f "$FULL_OWNED" ]; }
+route_guard() {
+ if ! owned_full; then
+  if nft list table inet "$NFT" >/dev/null 2>&1 ||
+     ip -4 rule show | grep -q '^10201:' ||
+     [ -n "$(ip -4 route show table "$TABLE" 2>/dev/null)" ]; then
+   echo 'routing_resource_conflict=present'
+   return 1
   fi
-  echo direct > "$STATE"
+ fi
+ echo 'routing_resource_conflict=none'
+}
+clear_route() {
+ if owned_full; then
+  nft delete table inet "$NFT" 2>/dev/null || say '撤销自有 nft 表失败'
+  while ip -4 rule show | grep -Eq '^10201:.*fwmark 0x4246 .*lookup 201'; do
+   ip -4 rule del priority 10201 fwmark "$MARK" table "$TABLE" 2>/dev/null || break
+  done
+  ip -4 route flush table "$TABLE" 2>/dev/null || say '自有路由表清理失败'
+  rm -f "$FULL_OWNED"
+  redirects_restore || say '恢复 ICMP Redirect 原配置失败'
+ else
+  # Even a crashed previous beta must not trigger deletion of third-party
+  # resources on reboot or a button click.
+  [ ! -f "$REDIRECT_SAVE" ] || say '缺少路由所有权标识：不自动恢复不确定的共享 sysctl'
+ fi
+ echo direct > "$STATE"
+}
+# A down or missing side next hop must never select an empty policy table
+# as a blackhole. This is the primary-only fallback-to-main invariant.
+fallback_audit() {
+ if owned_full; then echo 'policy_ownership=ours'; else echo 'policy_ownership=none'; fi
+ route_guard || true
+ echo 'fallback_policy=main'
+ echo 'client_forwarding=locked_until_end_to_end_verified'
 }
 use_bypass() {
   [ ! -f "$TEST_EXP" ] || { echo 'test in progress'; return 1; }
@@ -405,7 +431,10 @@ status() {
   echo "deployment=primary_only"
   echo "side_package_required=no"
   echo "test_client=$(val test_client '')"
-  echo "route_validation=runtime-required"\n  echo "health_evidence=side_icmp_then_routed_https"\n  echo "client_return_path=unverified"
+  echo "route_validation=runtime-required"
+  echo "health_evidence=side_icmp_then_routed_https"
+  echo "client_return_path=unverified"
+  echo "fallback_policy=main"
   echo "auto_safety_lock=single_arm_return_unverified"
   echo "client_test_safety_lock=single_arm_return_unverified"
   echo "dhcp_router=$(uci -q get dhcp.lan.dhcp_option 2>/dev/null | tr '\n' ',' || true)"
@@ -464,6 +493,7 @@ case "${1:-status}" in
   status) status;;
   check) check_config && { check_base && echo healthy || echo unhealthy; };;
   topology-audit) topology_audit;;
+  fallback-audit) fallback_audit;;
   health-report) health_report;;
   check-proxy)
     if ! check_config; then echo config_invalid
