@@ -1,0 +1,119 @@
+#!/bin/sh
+# Bypass Failover v0.1.0 (OpenWrt 24.10 / fw4) - IPv4 only.
+# Installed ONLY on the primary OpenWrt. Disabled by default.
+set -u
+CFG=/etc/config/bypass_failover
+STATE=/tmp/bypass-failover.state
+PID=/var/run/bypass-failover.pid
+LOG=/tmp/bypass-failover.log
+TABLE=201
+MARK=0x4246
+NFT=bypass_failover
+val() { uci -q get "bypass_failover.main.$1" 2>/dev/null || printf '%s' "$2"; }
+say() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG"; tail -n 400 "$LOG" > "$LOG.new"; mv "$LOG.new" "$LOG"; }
+valid_ip() { case "$1" in ''|*[!0-9.]*|.*|*..*|*.) return 1;; esac; echo "$1" | awk -F. 'NF==4 {for(i=1;i<=4;i++) if($i !~ /^[0-9]+$/ || $i>255 || length($i)>3) exit 1; exit 0} {exit 1}'; }
+check_config() {
+  PRIMARY=$(val primary 192.168.31.1)
+  BYPASS=$(val bypass 192.168.31.2)
+  LAN=$(val lan br-lan)
+  INTERVAL=$(val interval 10)
+  FAIL=$(val fail_count 3)
+  RECOVER=$(val recover_count 5)
+  HOLD=$(val hold_seconds 120)
+  for ip in "$PRIMARY" "$BYPASS"; do valid_ip "$ip" || { say "无效 IP: $ip"; return 1; }; done
+  [ "$PRIMARY" != "$BYPASS" ] || return 1
+  [ "$LAN" = br-lan ] || { say 'v0.1 only supports br-lan'; return 1; }
+  ip -4 addr show dev "$LAN" | grep -Fq "$PRIMARY/" || { say '主路由LAN地址不匹配'; return 1; }
+  ip -4 route get "$BYPASS" | grep -q "dev $LAN" || { say '旁路由不在指定 LAN'; return 1; }
+  for n in "$INTERVAL" "$FAIL" "$RECOVER" "$HOLD"; do case "$n" in ''|*[!0-9]*) return 1;; esac; done
+  [ "$INTERVAL" -ge 5 ] && [ "$FAIL" -ge 2 ] && [ "$RECOVER" -ge 2 ] && [ "$HOLD" -ge 30 ] || return 1
+}
+health() {
+  ping -c 1 -W 2 "$BYPASS" >/dev/null 2>&1 || return 1
+  # DNS checks service reachability, not the health of every proxy node.
+  nslookup www.baidu.com "$BYPASS" >/dev/null 2>&1 || return 1
+}
+clear_route() {
+  nft delete table inet "$NFT" 2>/dev/null || true
+  while ip -4 rule del priority 10201 2>/dev/null; do :; done
+  ip -4 route flush table "$TABLE" 2>/dev/null || true
+  echo direct > "$STATE"
+}
+use_bypass() {
+  # Fail closed to direct: build policy table before mark rule. Exclude router itself,
+  # LAN/subnet destinations and all traffic originating at BYPASS.
+  clear_route
+  ip -4 route replace default via "$BYPASS" dev "$LAN" table "$TABLE" || return 1
+  nft -f - <<EOF
+table inet $NFT {
+ chain mark_in {
+  type filter hook prerouting priority mangle; policy accept;
+  iifname "$LAN" ip saddr != $BYPASS ip saddr != $PRIMARY ip daddr != 192.168.0.0/16 ip daddr != 10.0.0.0/8 ip daddr != 172.16.0.0/12 ip daddr != 127.0.0.0/8 ip daddr != 224.0.0.0/4 meta mark set $MARK
+ }
+ chain snat_out {
+  type nat hook postrouting priority srcnat - 1; policy accept;
+  oifname "$LAN" meta mark $MARK ip daddr != 192.168.0.0/16 snat ip to $PRIMARY
+ }
+}
+EOF
+  if ! nft list table inet "$NFT" >/dev/null 2>&1; then clear_route; return 1; fi
+  if ! ip -4 rule add priority 10201 fwmark "$MARK" table "$TABLE"; then clear_route; return 1; fi
+  echo bypass > "$STATE"
+}
+mode() { val mode direct; }
+status() {
+  echo "mode=$(mode)"
+  echo "state=$(cat "$STATE" 2>/dev/null || echo direct)"
+  if [ -f "$PID" ] && kill -0 "$(cat "$PID")" 2>/dev/null; then echo "daemon=running"; else echo "daemon=stopped"; fi
+  echo "bypass=$(val bypass 192.168.31.2)"
+  echo "lan=$(val lan br-lan)"
+  echo "ipv6=not-managed"
+}
+daemon() {
+  check_config || { say '配置检查失败，保持直连'; clear_route; exit 1; }
+  echo "$$" > "$PID"
+  trap 'clear_route; rm -f "$PID"; exit 0' INT TERM EXIT
+  last=0; failures=0; successes=0
+  clear_route; say '守护进程启动，安全默认直连'
+  while :; do
+    newmode=$(mode)
+    if [ "$newmode" != auto ]; then
+      [ "$(cat "$STATE")" = direct ] || { clear_route; say '切换为手动直连'; }
+      sleep "$INTERVAL"; continue
+    fi
+    if health; then failures=0; successes=$((successes+1)); else successes=0; failures=$((failures+1)); fi
+    now=$(date +%s)
+    current=$(cat "$STATE" 2>/dev/null || echo direct)
+    if [ "$current" = bypass ] && [ "$failures" -ge "$FAIL" ]; then
+      clear_route; last=$now; say '旁路由健康检查连续失败，已回退小米直连'
+    elif [ "$current" = direct ] && [ "$successes" -ge "$RECOVER" ] && [ $((now-last)) -ge "$HOLD" ]; then
+      if use_bypass; then last=$now; say '旁路由恢复稳定，已启用引流'; else last=$now; say '引流规则安装失败，继续直连'; fi
+    fi
+    sleep "$INTERVAL"
+  done
+}
+start() {
+  [ -f "$PID" ] && kill -0 "$(cat "$PID")" 2>/dev/null && { echo already-running; return 0; }
+  check_config || { echo 'config invalid; no changes made' >&2; return 1; }
+  ( "$0" daemon </dev/null >/dev/null 2>&1 & )
+  echo started
+}
+stop() {
+  if [ -f "$PID" ]; then
+    k=$(cat "$PID"); kill "$k" 2>/dev/null || true
+    i=0; while kill -0 "$k" 2>/dev/null && [ "$i" -lt 6 ]; do sleep 1; i=$((i+1)); done
+  fi
+  clear_route
+  rm -f "$PID"
+  say '服务停止，保持小米直连'
+}
+case "${1:-status}" in
+  start) start;; stop) stop;; restart) stop; start;;
+  daemon) daemon;;
+  status) status;;
+  check) check_config && { health && echo healthy || echo unhealthy; };;
+  direct) uci set bypass_failover.main.mode=direct; uci commit bypass_failover; clear_route; say '用户选择直连';;
+  auto) check_config || exit 1; uci set bypass_failover.main.mode=auto; uci commit bypass_failover; start; say '用户开启自动模式';;
+  logs) tail -n 100 "$LOG" 2>/dev/null || true;;
+  *) echo 'usage: start|stop|restart|status|check|direct|auto|logs' >&2; exit 2;;
+esac
