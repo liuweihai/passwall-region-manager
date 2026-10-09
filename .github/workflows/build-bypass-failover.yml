@@ -18,6 +18,7 @@ jobs:
         run: |
           set -euo pipefail
           sh -n luci-app-bypass-failover/root/usr/sbin/bypass-failover
+          sh -n luci-app-bypass-failover/root/etc/hotplug.d/iface/95-bypass-failover
           sh luci-app-bypass-failover/tests/guardrails.sh
           sh -n luci-app-bypass-failover/root/usr/libexec/bypass-failover-web
           sh -n luci-app-bypass-failover/root/etc/init.d/bypass-failover
