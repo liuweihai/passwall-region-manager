@@ -160,6 +160,38 @@ return view.extend({
    }},T('运行 60 秒测试','Run 60-second test')),
    ' ',
    E('button',{'class':'btn cbi-button-negative','click':function(){run('test-stop').then(reload).catch(showError);}},T('撤销测试','Cancel test')),
+   E('h4',{},T('浏览器端到端网络试验（仍属测试功能）','Browser end-to-end connectivity trial')),
+   E('p',{},T('请在上方填写当前这台设备的 IP，并用这台设备的浏览器执行。系统会临时引流、请求一个 HTTPS 地址、读取命中数，再立即撤销测试。仅证明请求通过和策略命中，不代表代理节点出口已验证。','Set the IP of this browser device above. This tries HTTPS over temporary routing, reads packet matches, then rolls back immediately. It does not prove proxy-node egress.')),
+   E('button',{'class':'btn cbi-button','click':function(){
+     var target=testInput.value.trim();
+     if (!target) { message(T('请先填写当前浏览器设备的 IPv4 地址。','Enter this browser device IPv4 first.'),true); return; }
+     var started=false, networkOK=false, packets=0, networkError='';
+     run('set-client',[target])
+      .then(function(){return run('test-start');})
+      .then(function(){started=true;
+       var controller=new AbortController();
+       var timeout=setTimeout(function(){controller.abort();},8000);
+       return fetch('https://www.gstatic.com/generate_204?bypass_trial='+Date.now(),
+         {mode:'no-cors',cache:'no-store',signal:controller.signal})
+        .then(function(){networkOK=true;},function(e){networkError=String(e.message||e);})
+        .then(function(){clearTimeout(timeout);});
+      })
+      .then(function(){return run('status');})
+      .then(function(raw){packets=parse(raw).test_packets||'0';})
+      .then(function(){
+       return run('test-stop').then(function(){started=false;});
+      })
+      .then(function(){
+       message(networkOK && Number(packets)>0?
+         T('临时引流期间 HTTPS 请求成功，策略命中 '+packets+' 个包；已撤销临时规则。尚未证明 PassWall 节点实际代理。','HTTPS responded during trial, '+packets+' packets matched, temporary route withdrawn. Proxy-node egress remains unverified.'):
+         T('未能完成验证：HTTPS '+(networkOK?'成功':'失败')+'，策略命中 '+packets+' 个包。临时规则已尝试撤销。','Trial inconclusive: HTTPS '+(networkOK?'OK':'failed')+', '+packets+' matched packets. Temporary rules withdrawal attempted.'),!(networkOK&&Number(packets)>0));
+       return reload();
+      })
+      .catch(function(e){
+       if(started) run('test-stop').then(reload).catch(showError);
+       showError(e);
+      });
+   }},T('开始并自动撤销测试','Run trial and roll back')),
    E('h4',{},T('诊断','Diagnostics')),
    E('button',{'class':'btn cbi-button','click':function(){run('preflight').then(function(v){message(v);}).catch(showError);}},T('查看诊断详情','Show diagnostics')),
    E('h4',{},T('运行日志','Event log')),events
