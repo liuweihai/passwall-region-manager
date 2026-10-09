@@ -19,7 +19,8 @@ grep -F 'single-arm return path is not validated; full-home auto routing remains
 grep -F 'client route test is safety locked' "$CORE" >/dev/null
 grep -F 'disabled' "$UI" >/dev/null
 grep -F 'type nat hook postrouting' "$SIDE" >/dev/null
-grep -F 'ip saddr $CLIENT' "$SIDE" >/dev/null
+grep -F 'elements = { $CLIENT timeout 60s }' "$SIDE" >/dev/null
+grep -F 'ip saddr @trial_clients' "$SIDE" >/dev/null
 grep -F 'lease_expire()' "$SIDE" >/dev/null
 grep -F 'token="$(date +%s)-$"' "$SIDE" >/dev/null
 grep -F 'expected=' "$SIDE" >/dev/null
