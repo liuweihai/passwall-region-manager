@@ -4,7 +4,7 @@
 'require poll';
 'require ui';
 
-var CMD = '/usr/libexec/bypass-failover-web', statusBox, logBox, testInfo, clientInput;
+var CMD = '/usr/libexec/bypass-failover-web', statusBox, logBox, testInfo, clientInput, proxyInput;
 function zh() {
  // LuCI may report "auto" while its translated menus are already Chinese.
  var langs = [L.env.lang, document.documentElement.lang];
@@ -34,7 +34,7 @@ var statusLabels = {
  proxy_check:['代理出口检测配置','Proxy exit configuration'],
  forwarding_verified:['引流验证许可','Forwarding verified'],
  dns_strategy:['DNS 策略','DNS strategy'], ipv6_strategy:['IPv6 策略','IPv6 strategy'],
- notifications:['故障通知','Notifications'],
+ notifications:['故障通知','Notifications'], proxy_endpoint:['代理检测地址','Proxy endpoint'],
  test:['单设备测试','Single-device test'], test_remaining:['剩余时间（秒）','Seconds remaining'],
  test_client:['测试设备 IP','Test device IP']
 };
@@ -134,6 +134,8 @@ function refresh() {
   statusBox.textContent = localizeStatus(r[0]);
   var ipMatch = r[0].match(/^test_client=(.*)$/m);
   if (ipMatch && clientInput && document.activeElement !== clientInput) clientInput.value = ipMatch[1];
+  var epMatch = r[0].match(/^proxy_endpoint=(.*)$/m);
+  if (epMatch && proxyInput && document.activeElement !== proxyInput) proxyInput.value = epMatch[1];
   logBox.textContent = localizeLog(r[1]);
  }).catch(error);
 }
@@ -143,6 +145,8 @@ return view.extend({
   statusBox = E('pre', {'style':'white-space:pre-wrap'}, localizeStatus(data[0]));
   var testIp = (data[0].match(/^test_client=(.*)$/m) || ['', ''])[1];
   clientInput = E('input', {'class':'cbi-input-text','type':'text','placeholder':'192.168.1.123','value':testIp});
+  var proxyEp = (data[0].match(/^proxy_endpoint=(.*)$/m) || ['', ''])[1];
+  proxyInput = E('input', {'class':'cbi-input-text','type':'text','placeholder':'socks5h://192.168.1.2:1080','value':proxyEp});
   logBox = E('pre', {'style':'white-space:pre-wrap;max-height:320px;overflow:auto'}, localizeLog(data[1]));
   poll.add(refresh, 5);
   return E('div', {}, [
@@ -180,6 +184,10 @@ return view.extend({
    ]),
    E('div', {'class':'cbi-section'}, [
     E('h3', {}, t('单设备安全测试（60 秒后自动撤销）', 'Single-client safety test (auto rollback after 60s)')),
+    E('p', {}, t('旁路由 HTTP/SOCKS5 代理入口（必须已实际开放，仅填真实端口）：', 'Existing bypass HTTP/SOCKS5 proxy endpoint:')),
+    proxyInput, ' ',
+    E('button', {'class':'btn cbi-button', 'click':function(){call('set-proxy',[proxyInput.value.trim()]).then(refresh).catch(error);}}, t('保存检测入口','Save proxy endpoint')),
+
     E('p', {}, t('仅选择一台测试设备，其他设备保持主路由直连。需要先通过真实代理出口检测；禁止用全屋设备执行首次测试。',
      'Route one test device only, keeping others direct. A working real-proxy endpoint is required.')),
     E('label', {}, t('测试设备 IPv4 地址：', 'Test device IPv4: ')), clientInput, ' ',
