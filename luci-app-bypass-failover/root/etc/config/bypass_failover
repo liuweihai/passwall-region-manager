@@ -1,6 +1,6 @@
 config settings 'main'
- option primary '192.168.31.1'
- option bypass '192.168.31.2'
+ option primary ''
+ option bypass ''
  option lan 'br-lan'
  option mode 'direct'
  option interval '10'
