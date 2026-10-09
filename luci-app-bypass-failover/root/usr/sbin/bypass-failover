@@ -163,6 +163,7 @@ status() {
   echo "bypass=$(val bypass '')"
   echo "lan=$(val lan br-lan)"
   echo "ipv6=not-managed"
+  echo "proxy_endpoint=$(val proxy_endpoint '')"
   echo "proxy_check=$(case "$(val proxy_endpoint '')" in '') echo unconfigured;; *) echo configured;; esac)"
   echo "forwarding_verified=$(val forwarding_verified 0)"
   echo "dns_strategy=primary-router"
