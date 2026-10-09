@@ -1,0 +1,7 @@
+# 仅示例分流映射。AIGC 只能 US；其他可按需求修改。
+ROUTES='AIGC:US Streaming:JP Proxy:SG'
+PROBE_PORT=11881
+PROBE_TIMEOUT=12
+TTL_SEC=1800
+FAIL_LIMIT=2
+# GEO_URL=https://ipinfo.io/country
