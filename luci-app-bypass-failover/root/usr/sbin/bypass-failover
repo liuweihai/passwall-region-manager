@@ -95,7 +95,7 @@ EOF
   echo bypass > "$STATE"
 }
 test_clear() {
- [ -f "$TEST_EXP" ] || nft list table inet "$TEST_NFT" >/dev/null 2>&1 || return 0
+ # Always clean up by owned rule priority/table, even if the timer file was lost.
  nft delete table inet "$TEST_NFT" 2>/dev/null || true
  while ip -4 rule del priority 10200 2>/dev/null; do :; done
  ip -4 route flush table "$TEST_TABLE" 2>/dev/null || true
@@ -133,8 +133,10 @@ test_start() {
  valid_ip "$client" || { echo 'test client IP not configured' >&2; return 1; }
  [ "$client" != "$PRIMARY" ] && [ "$client" != "$BYPASS" ] || return 1
  ip -4 route get "$client" | grep -q "dev $LAN" || { echo 'test client not in LAN' >&2; return 1; }
- # A real proxy endpoint must already pass before permitting any route mutation.
- health || { echo 'proxy exit check failed' >&2; return 1; }
+ # Transparent TCP mode can be tested without exposing an HTTP/SOCKS listener.
+ # This is a BASE connectivity prerequisite, not a proof of proxy egress.
+ check_base || { echo 'bypass connectivity check failed' >&2; return 1; }
+ # Do not claim a successful proxy or forwarding result before a real client test.
  mac=$(ip neigh show "$BYPASS" dev "$LAN" | awk '/lladdr/{print $5; exit}')
  case "$mac" in
   ??:??:??:??:??:??) ;;
@@ -159,6 +161,7 @@ table inet $TEST_NFT {
 EOF
  then test_clear; return 1; fi
  if ! ip -4 rule add priority 10200 fwmark "$TEST_MARK" table "$TEST_TABLE"; then test_clear; return 1; fi
+ # Start watchdog with a separate lifetime. A failure to launch aborts testing.
  ( "$0" test-watchdog "$deadline" </dev/null >/dev/null 2>&1 & )
  sleep 1
  if ! [ -f "$TEST_PID" ] || ! kill -0 "$(cat "$TEST_PID")" 2>/dev/null; then
