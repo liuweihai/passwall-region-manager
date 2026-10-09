@@ -24,7 +24,8 @@ SAFE_TEST_DIR=/tmp/bypass-failover-safe-rollback
 SAFE_TEST_LAST=/tmp/bypass-failover-safe-last
 safe_test_stop() {
  if [ -d "$SAFE_TEST_DIR" ]; then
-  rm -f "$SAFE_TEST_DIR/deadline" "$SAFE_TEST_DIR/pid"
+  safe_test_cleanup
+  rm -f "$SAFE_TEST_DIR/deadline" "$SAFE_TEST_DIR/pid" "$SAFE_TEST_DIR/owned"
   rmdir "$SAFE_TEST_DIR" 2>/dev/null || true
   printf 'stopped\n' > "$SAFE_TEST_LAST"
   say '安全回滚测试：已手动停止；未修改任何路由或防火墙规则'
