@@ -12,11 +12,13 @@ function call(arg) {
 }
 function healthMessage(raw) {
  var result = (raw || '').trim();
+ var lang = String(L.env.lang || '').toLowerCase();
+ var chinese = lang.indexOf('zh') === 0;
  if (result === 'healthy')
-  return _('Health check passed: bypass router Ping and DNS are responding.');
+  return chinese ? '检测通过：旁路由 Ping 和 DNS 均正常（不代表代理出口正常）。' : 'Health check passed: bypass router Ping and DNS respond (proxy exit not verified).';
  if (result === 'unhealthy')
-  return _('Health check failed: bypass router Ping or DNS is unavailable.');
- return _('Health check returned: ') + result;
+  return chinese ? '检测失败：旁路由 Ping 或 DNS 不可用。' : 'Health check failed: bypass router Ping or DNS is unavailable.';
+ return chinese ? '检测返回：' + result : 'Health check returned: ' + result;
 }
 function error(e) { ui.addNotification(null, E('p', {}, String(e.message || e)), 'danger'); }
 function refresh() {
