@@ -1,0 +1,26 @@
+name: Build bypass failover IPK
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'luci-app-bypass-failover/**'
+      - '.github/workflows/build-bypass-failover.yml'
+  workflow_dispatch:
+jobs:
+  ipk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate and build package
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash luci-app-bypass-failover/build-ipk.sh
+      - name: Upload installable package
+        uses: actions/upload-artifact@v4
+        with:
+          name: luci-app-bypass-failover-ipk
+          path: dist/*.ipk
+          if-no-files-found: error
