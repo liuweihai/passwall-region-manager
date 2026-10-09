@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bypass Failover v0.3.0-beta6 (OpenWrt 24.10 / fw4) - IPv4 only.
+# Bypass Failover v0.3.0-beta7 (OpenWrt 24.10 / fw4) - IPv4 only.
 # Installed ONLY on the primary OpenWrt. Disabled by default.
 set -u
 CFG=/etc/config/bypass_failover
@@ -97,23 +97,49 @@ EOF
   say "旁路由标记路径 HTTPS 可达（出口 $bypass_ip），但未证明代理出口或客户端回程"
 )
 
-health() {
-  ping -c 1 -W 2 "$BYPASS" >/dev/null 2>&1 || return 1
-  nslookup www.baidu.com "$BYPASS" >/dev/null 2>&1 || return 1
-  endpoint=$(val proxy_endpoint '')
-  if [ -z "$endpoint" ]; then
-    # Never treat a marked router-originated probe as a verified proxy exit.
-    # The test is useful for diagnostics only; production stays gated.
-    probe_transparent || { say '透明 TCP 标记路径尚不可达，保持直连'; return 1; }
-    say '标记路径可达，但没有代理出口及客户端回程证据，禁止全屋自动引流'
-    return 1
-  fi
+# Status is evidence-graded. ICMP/DNS success never means the transparent
+# PassWall path or the original client TCP return path has been validated.
+# No dependency on a remotely exposed SOCKS5 listener.
+health_report() {
+ check_config || { echo 'config=invalid'; return 1; }
+ if ping -c 1 -W 2 "$BYPASS" >/dev/null 2>&1; then
+  echo 'side_icmp=reachable'
+ else
+  echo 'side_icmp=unreachable'
+  echo 'automatic_switch=blocked'
+  return 1
+ fi
+ # A DNS response from .2 is independent of actual client TCP routing.
+ if nslookup www.baidu.com "$BYPASS" >/dev/null 2>&1; then
+  echo 'side_dns=reachable'
+ else
+  echo 'side_dns=unreachable'
+ fi
+ endpoint=$(val proxy_endpoint '')
+ if [ -n "$endpoint" ]; then
   case "$endpoint" in
-    http://"$BYPASS":*|socks5h://"$BYPASS":*) ;;
-    *) say '代理出口检测地址格式有误'; return 1 ;;
+   http://"$BYPASS":*|socks5h://"$BYPASS":*) ;;
+   *) echo 'proxy_endpoint=invalid'; echo 'automatic_switch=blocked'; return 1;;
   esac
-  curl -fsS --connect-timeout 3 --max-time 7 --proxy "$endpoint" \
-    --output /dev/null 'https://www.gstatic.com/generate_204' || return 1
+  if curl -4 -fsS --connect-timeout 3 --max-time 7 --proxy "$endpoint" \
+   -o /dev/null https://www.gstatic.com/generate_204 >/dev/null 2>&1; then
+   echo 'proxy_endpoint=reachable'
+  else
+   echo 'proxy_endpoint=unreachable'
+  fi
+ else
+  echo 'proxy_endpoint=not_configured'
+ fi
+ echo 'transparent_proxy=unverified'
+ echo 'client_return_path=unverified'
+ echo 'automatic_switch=blocked'
+ return 1
+}
+# Old daemon deliberately remains fail-closed, including with an optional
+# proxy endpoint: endpoint success is not evidence of client return routing.
+health() {
+ health_report >> "$LOG" 2>/dev/null
+ return 1
 }
 check_base() {
   ping -c 1 -W 2 "$BYPASS" >/dev/null 2>&1 &&
@@ -393,7 +419,7 @@ status() {
   echo "deployment=primary_only"
   echo "side_package_required=no"
   echo "test_client=$(val test_client '')"
-  echo "route_validation=runtime-required"
+  echo "route_validation=runtime-required"\n  echo "health_evidence=icmp_dns_not_sufficient"\n  echo "client_return_path=unverified"
   echo "auto_safety_lock=single_arm_return_unverified"
   echo "client_test_safety_lock=single_arm_return_unverified"
   echo "dhcp_router=$(uci -q get dhcp.lan.dhcp_option 2>/dev/null | tr '\n' ',' || true)"
@@ -451,7 +477,7 @@ case "${1:-status}" in
   daemon) daemon;;
   status) status;;
   check) check_config && { check_base && echo healthy || echo unhealthy; };;
-  topology-audit) topology_audit;;
+  topology-audit) topology_audit;;\n  health-report) health_report;;
   check-proxy)
     if ! check_config; then echo config_invalid
     elif ! check_base; then echo bypass_unreachable
