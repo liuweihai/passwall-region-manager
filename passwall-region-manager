@@ -1,5 +1,5 @@
 #!/bin/sh
-# PassWall Region Manager v0.1.0 preview; OpenWrt ash; jq, curl, Xray required.
+# PassWall Region Manager v0.1.1 preview; OpenWrt ash; jq, curl, Xray required.
 # safe by default: no UCI write except explicit apply, and no cron installed.
 set -u
 BASE=/etc/passwall-region-manager
@@ -19,10 +19,35 @@ GEO_URL=${GEO_URL:-https://ipinfo.io/country}
 PROBE_URL=${PROBE_URL:-https://www.google.com/generate_204}
 TTL_SEC=${TTL_SEC:-1800}
 FAIL_LIMIT=${FAIL_LIMIT:-2}
+STARTUP_WAIT=${STARTUP_WAIT:-1}
+
 # CC|matching alternatives (case-insensitive; full US token via emoji, keyword, US_/USA, etc)
 REGIONS=${REGIONS:-US JP HK SG TW KR}
 log() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG"; }
-lock() { mkdir "$LOCK" 2>/dev/null || { log '已有任务运行，拒绝并发'; exit 2; }; trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT; }
+unlock() {
+  [ -f "$LOCK/pid" ] && [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$" ] || return 0
+  rm -f "$LOCK/pid"; rmdir "$LOCK" 2>/dev/null || true
+}
+lock() {
+  if ! mkdir "$LOCK" 2>/dev/null; then
+    owner=$(cat "$LOCK/pid" 2>/dev/null || true)
+    # Empty owner may be an in-progress lock acquisition: never steal it automatically.
+    case "$owner" in ''|*[!0-9]*) log '存在无PID任务锁，拒绝自动删除；请人工检查'; return 2;; esac
+    if kill -0 "$owner" 2>/dev/null; then
+      log "已有任务运行 PID=$owner，拒绝并发"; return 2
+    fi
+    # Only reclaim a well-formed stale lock; failed cleanup still fails safely.
+    [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$owner" ] || return 2
+    rm -f "$LOCK/pid"
+    rmdir "$LOCK" 2>/dev/null || { log '无法清理旧任务锁'; return 2; }
+    log "已清理遗留任务锁 PID=$owner"
+    mkdir "$LOCK" 2>/dev/null || return 2
+  fi
+  printf '%s\n' "$" > "$LOCK/pid" || return 2
+  trap 'unlock' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+}
 require() { command -v "$1" >/dev/null 2>&1 || { log "缺少工具：$1（预检不自动安装）"; return 1; }; }
 node_name() { uci -q get "passwall.$1.remarks" || true; }
 node_country() {
@@ -47,10 +72,14 @@ scan() {
 # V2 supports VLESS/REALITY/TCP only; other protocols are SKIPPED, not guessed.
 probe() {
   id=$1; cc=$2; local_port=$3
-  [ "$(uci -q get "passwall.$id" || true)" = nodes ] || return 1
-  [ "$(uci -q get "passwall.$id.protocol" || true)" = vless ] || { log "$id: 非 VLESS，暂不支持独立验证"; return 1; }
-  [ "$(uci -q get "passwall.$id.reality" || true)" = 1 ] || { log "$id: 非 REALITY，暂不支持独立验证"; return 1; }
-  [ "$(uci -q get "passwall.$id.transport" || true)" = tcp ] || { log "$id: 非 TCP，暂不支持独立验证"; return 1; }
+  label=$(node_name "$id")
+  if [ "$(uci -q get "passwall.$id" || true)" != nodes ]; then log "跳过: $label 原节点不存在"; return 1; fi
+  if [ "$(uci -q get "passwall.$id.type" || true)" != Xray ] ||
+     [ "$(uci -q get "passwall.$id.protocol" || true)" != vless ] ||
+     [ "$(uci -q get "passwall.$id.reality" || true)" != 1 ] ||
+     [ "$(uci -q get "passwall.$id.transport" || true)" != tcp ]; then
+    log "未检测: $label 当前独立探测仅支持 Xray VLESS REALITY TCP"; return 1
+  fi
   address=$(uci -q get "passwall.$id.address" || true)
   port=$(uci -q get "passwall.$id.port" || true)
   uuid=$(uci -q get "passwall.$id.uuid" || true)
@@ -59,31 +88,46 @@ probe() {
   short=$(uci -q get "passwall.$id.reality_shortId" || true)
   finger=$(uci -q get "passwall.$id.fingerprint" || true)
   flow=$(uci -q get "passwall.$id.flow" || true)
-  [ -n "$address" ] && [ -n "$uuid" ] && [ -n "$server" ] && [ -n "$pub" ] || { log "$id: 节点字段不完整，跳过"; return 1; }
-  case "$port" in *[!0-9]*|'') log "$id: 非法端口"; return 1;; esac
-  cfg="$WORK/probe-$$-$local_port.json"
-  out="$WORK/probe-$$-$local_port.log"
-  # secrets only in root-readable temporary file; never logged or printed
+  if [ -z "$address" ] || [ -z "$uuid" ] || [ -z "$server" ] || [ -z "$pub" ]; then
+    log "未检测: $label 缺少必要的 REALITY 字段"; return 1
+  fi
+  case "$port" in *[!0-9]*|'') log "未检测: $label 端口格式错误"; return 1;; esac
+  cfg="$run/probe-$local_port.json"
+  out="$run/probe-$local_port.log"
+  # Keep private node credentials in a root-only temporary work directory.
   (umask 077; jq -n --arg addr "$address" --argjson port "$port" --arg uid "$uuid" --arg sn "$server" \
     --arg pub "$pub" --arg short "$short" --arg fp "${finger:-chrome}" --arg flow "$flow" --argjson local "$local_port" '
     {log:{loglevel:"warning"},inbounds:[{listen:"127.0.0.1",port:$local,protocol:"socks",settings:{auth:"noauth",udp:false}}],
      outbounds:[{tag:"node",protocol:"vless",settings:{vnext:[{address:$addr,port:$port,users:[({id:$uid,encryption:"none",level:0} + (if $flow=="" then {} else {flow:$flow} end))]}]},streamSettings:{network:"tcp",security:"reality",realitySettings:{show:false,serverName:$sn,publicKey:$pub,shortId:$short,fingerprint:$fp,spiderX:"/"}}},
-     {tag:"direct",protocol:"freedom",settings:{}}]}' > "$cfg") || return 1
-  XRAY=${XRAY:-/tmp/etc/passwall/bin/xray}
-  [ -x "$XRAY" ] || XRAY=/usr/bin/xray
-  [ -x "$XRAY" ] || { log 'Xray 不存在'; rm -f "$cfg"; return 1; }
-  "$XRAY" run -c "$cfg" > "$out" 2>&1 & pid=$!
-  sleep 2
-  ok=0
-  if kill -0 "$pid" 2>/dev/null && curl -q -4 -f -sS -o /dev/null --noproxy '' --socks5-hostname "127.0.0.1:$local_port" --connect-timeout "$CONNECT_TIMEOUT" --max-time "$PROBE_TIMEOUT" "$PROBE_URL" 2>/dev/null; then
-    got=$(curl -q -4 -f -sS --noproxy '' --socks5-hostname "127.0.0.1:$local_port" --connect-timeout "$CONNECT_TIMEOUT" --max-time "$PROBE_TIMEOUT" "$GEO_URL" 2>/dev/null | tr -d '\r\n \t')
-    [ "$got" = "$cc" ] && ok=1
+     {tag:"direct",protocol:"freedom",settings:{}}]}' > "$cfg") || { log "未检测: $label 生成配置失败"; return 1; }
+  xray_bin=${XRAY:-/tmp/etc/passwall/bin/xray}
+  [ -x "$xray_bin" ] || xray_bin=/usr/bin/xray
+  if [ ! -x "$xray_bin" ]; then log "未检测: $label 找不到 Xray"; return 1; fi
+  "$xray_bin" run -c "$cfg" > "$out" 2>&1 &
+  pid=$!
+  sleep "$STARTUP_WAIT"
+  if ! kill -0 "$pid" 2>/dev/null; then
+    log "探测失败: $label 独立 Xray 进程启动失败（可能是协议字段不兼容）"
+    wait "$pid" 2>/dev/null || true
+    return 1
   fi
-  kill "$pid" 2>/dev/null || true
-  wait "$pid" 2>/dev/null || true
-  rm -f "$cfg" "$out"
-  if [ "$ok" -eq 1 ]; then log "验证通过: $(node_name "$id") 真实出口=$cc"; return 0; fi
-  log "验证失败: $(node_name "$id")（不可用/国家不符/查询失败）"; return 1
+  curl -q -4 -f -sS -o /dev/null --noproxy '' --socks5-hostname "127.0.0.1:$local_port" --connect-timeout "$CONNECT_TIMEOUT" --max-time "$PROBE_TIMEOUT" "$PROBE_URL" 2>/dev/null
+  https_rc=$?
+  if [ "$https_rc" -ne 0 ]; then
+    log "HTTPS 未通过: $label curl错误码=$https_rc（不等同于PassWall节点不可用）"
+    kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true
+    return 1
+  fi
+  got=$(curl -q -4 -f -sS --noproxy '' --socks5-hostname "127.0.0.1:$local_port" --connect-timeout "$CONNECT_TIMEOUT" --max-time "$PROBE_TIMEOUT" "$GEO_URL" 2>/dev/null | tr -d '\r\n \t')
+  # Pipe status would mask curl errors in ash; empty/non-ISO response is classified unknown.
+  kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true
+  case "$got" in
+    [A-Z][A-Z])
+      if [ "$got" = "$cc" ]; then log "验证通过: $label HTTPS正常，真实出口=$got"; return 0; fi
+      log "出口国家不匹配: $label 预期=$cc 实测=$got"; return 1;;
+    *)
+      log "HTTPS正常但出口国家未确认: $label（地理位置服务可能失败；不判为节点不可用）"; return 1;;
+  esac
 }
 # Pool records expire; only independently verified, current IDs are eligible.
 valid() {
@@ -97,7 +141,7 @@ verify_pool() {
   case "$PARALLEL" in 1|2|3|4|5|6) ;; *) log 'PARALLEL 只能为1至6'; return 2;; esac
   case "$VERIFY_REGION" in ALL|US|JP|HK|SG|TW|KR) ;; *) log '未知国家'; return 2;; esac
   run="$WORK/run-$$"; (umask 077; mkdir "$run") || return 1
-  trap 'rm -rf "$run"; rmdir "$LOCK" 2>/dev/null || true' EXIT
+  trap 'rm -rf "$run"; unlock' EXIT
   # The cache is read-only until the whole scan completes.
   scan > "$run/nodes.tsv"
   index=0; running=0
@@ -108,7 +152,7 @@ verify_pool() {
       printf '%s\t%s\t%s\n' "$cc" "$id" "$(awk -F '\t' -v c="$cc" -v i="$id" '$1==c && $2==i {print $3; exit}' "$STATE")" > "$run/res-$index"
       index=$((index+1)); continue
     fi
-    slot=$((index % PARALLEL))
+    slot=$((running % PARALLEL))
     port=$((PROBE_PORT + slot))
     (
       if probe "$id" "$cc" "$port"; then
@@ -189,13 +233,13 @@ apply() {
   else log '规则没有变化，不重启 PassWall'; fi
 }
 case "${1:-help}" in
-  scan) lock; scan ;;
-  verify) lock; VERIFY_REGION=${2:-ALL}; verify_pool ;;
+  scan) lock || exit $?; scan ;;
+  verify) lock || exit $?; VERIFY_REGION=${2:-ALL}; verify_pool ;;
   status) echo '===== 当前主节点 ====='; uci -q get 'passwall.@global[0].node'; echo '===== 已验证节点(国家 ID 时间戳) ====='; [ ! -f "$STATE" ] || cat "$STATE"; plan ;;
   plan) plan ;;
-  apply) lock; apply "$@" ;;
+  apply) lock || exit $?; apply "$@" ;;
   help|*) cat <<'END'
-PassWall 多地区管理器 v0.1.0 — 默认只读；不自动创建计划任务
+PassWall 多地区管理器 v0.1.1 — 默认只读；不自动创建计划任务
   scan                 节点名称自动识别（未做出口验证）
   verify [US|JP|HK|SG|TW|KR]   最多4路并发，仅检测指定国家；30分钟内复用缓存
   plan                 预览 AIGC/Streaming/Proxy 可用地区节点（不写 UCI）
