@@ -82,12 +82,10 @@ function renderSummary(data) {
     var save=entered===address?Promise.resolve():run('set-bypass',[entered]);
     save.then(function(){return run('health-report');}).then(function(raw){
      var v=parse(raw);
-     var msg=v.side==='offline'?
-       T('旁路由不在线：保持主路由直连，未执行外网检测。','Side offline: remain direct; external probe skipped.'):
-       v.external==='reachable_via_side_route'?
-       T('旁路由在线，经过旁路由路由的 HTTPS 测试成功。仍需验收普通设备回程，暂不启用自动引流。','Side online, routed HTTPS reachable. Client return path remains unverified.'):
-       T('旁路由在线，但外网路径失败或未确认，保持主路由直连。','Side online, routed HTTPS failed or unverified; remain direct.');
-     message(msg,v.external!=='reachable_via_side_route');
+     var ok=v.external==='reachable_via_side_route';
+     message(ok?T('检测成功','Check successful'):T('检测失败','Check failed'),!ok);
+     reload();
+
     }).catch(showError);
    }},T('检查旁路由与外网','Check side and Internet'))
   ]),
