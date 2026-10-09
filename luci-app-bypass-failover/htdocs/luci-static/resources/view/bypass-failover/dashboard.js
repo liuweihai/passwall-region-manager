@@ -4,224 +4,151 @@
 'require poll';
 'require ui';
 
-var CMD = '/usr/libexec/bypass-failover-web', statusBox, logBox, testInfo, clientInput, proxyInput;
-function zh() {
- // LuCI may report "auto" while its translated menus are already Chinese.
- var langs = [L.env.lang, document.documentElement.lang];
- for (var i = 0; i < langs.length; i++) {
-  var language = String(langs[i] || '').toLowerCase().replace('_', '-');
-  if (language.indexOf('zh') === 0) return true;
-  if (language.indexOf('en') === 0) return false;
- }
- // Use the actual active LuCI translations instead of browser locale alone.
- var translated = [_('Save & Apply'), _('Status'), _('System')].join(' ');
- if (/[\u3400-\u9fff]/.test(translated)) return true;
- var menus = document.querySelector('header, nav, .mainmenu');
- if (menus && /状态|系统|服务|网络/.test(menus.textContent || '')) return true;
- return String(navigator.language || '').toLowerCase().indexOf('zh') === 0;
+var CMD='/usr/libexec/bypass-failover-web';
+var header, guide, advanced, events, addrInput, testInput, proxyInput;
+function isZh() {
+ var lang=String(L.env.lang || '').toLowerCase().replace('_','-');
+ if (lang.indexOf('zh')===0) return true;
+ if (lang.indexOf('en')===0) return false;
+ return /[\u3400-\u9fff]/.test([_('System'),_('Status'),_('Network')].join(' '));
 }
-function t(cn, en) { return zh() ? cn : en; }
-function call(arg, more) {
- return fs.exec(CMD, [arg].concat(more || [])).then(function(r) {
-  if (r.code) throw new Error(localError(r.stderr || '') || t('请求失败', 'Request failed'));
-  return r.stdout || '';
+function T(c,e) { return isZh()?c:e; }
+function run(action,args) {
+ return fs.exec(CMD,[action].concat(args||[])).then(function(r){
+  if (r.code) throw new Error(r.stderr || T('操作未成功','Operation failed'));
+  return r.stdout||'';
  });
 }
-var statusLabels = {
- mode:['运行模式','Mode'], state:['实际引流状态','Routing state'],
- daemon:['监控进程','Monitor process'], bypass:['旁路由地址','Bypass router'],
- lan:['局域网接口','LAN interface'], ipv6:['IPv6 管理','IPv6 management'],
- proxy_check:['代理出口检测配置','Proxy exit configuration'],
- forwarding_verified:['引流验证许可','Forwarding verified'],
- dns_strategy:['DNS 策略','DNS strategy'], ipv6_strategy:['IPv6 策略','IPv6 strategy'],
- notifications:['故障通知','Notifications'], proxy_endpoint:['代理检测地址','Proxy endpoint'],
- test:['单设备测试','Single-device test'], test_remaining:['剩余时间（秒）','Seconds remaining'],
- test_client:['测试设备 IP','Test device IP']
-};
-var stateLabels = {
- direct:['小米主路由直连','Direct through primary router'],
- auto:['自动容灾','Automatic failover'],
- bypass:['通过旁路由','Through bypass router'],
- running:['运行中','Running'], stopped:['已停止','Stopped'],
- configured:['已配置','Configured'], unconfigured:['未配置','Not configured'],
- disabled:['未启用','Disabled'], enabled:['已启用','Enabled'],
- 'not-managed':['未接管','Not managed'],
- 'primary-router':['保持主路由 DNS','Keep primary router DNS'],
- unchanged:['保持原有设置','Unchanged'],
- '0':['未验证，禁止自动引流','Not verified; automatic forwarding blocked'],
- '1':['已确认','Verified'], idle:['未运行','Idle']
-};
-function translateValue(key, value) {
- if ((key === 'mode' || key === 'state' || key === 'daemon' ||
-      key === 'ipv6' || key === 'proxy_check' || key === 'notifications' ||
-      key === 'dns_strategy' || key === 'ipv6_strategy' || key === 'forwarding_verified' || key === 'test') &&
-     stateLabels[value]) return t.apply(null, stateLabels[value]);
- return value;
+function parse(s) {
+ var o={}; (s||'').trim().split('\n').forEach(function(l){
+  var i=l.indexOf('='); if(i>=0) o[l.slice(0,i)]=l.slice(i+1);
+ }); return o;
 }
-function localizeStatus(raw) {
- return (raw || '').trim().split('\n').map(function(line) {
-  var p = line.indexOf('=');
-  if (p < 0) return line;
-  var key = line.substring(0, p), value = line.substring(p + 1);
-  return (statusLabels[key] ? t.apply(null, statusLabels[key]) : key) +
-    '：' + translateValue(key, value);
- }).join('\n');
+function textLine(label,value) { return E('p',{},[E('strong',{},label+': '),value]); }
+function message(text,error) {
+ ui.addNotification(null,E('p',{},text),error?'danger':'info');
 }
-var preflightLabels = {
- config:['基础配置','Configuration'], base:['旁路由 Ping / DNS','Bypass Ping / DNS'],
- proxy:['真实代理出口','Real proxy exit'], forwarding:['引流安全验证','Forwarding safety check']
-};
-var preflightValues = {
- ok:['通过','Passed'], healthy:['正常','Healthy'], unhealthy:['异常或尚未配置','Unavailable or not configured'],
- blocked:['未验证，禁止启用','Not verified; blocked'], approved:['已确认','Approved']
-};
-function localizePreflight(raw) {
- return (raw || '').trim().split('\n').map(function(line) {
-  var p = line.indexOf('=');
-  if (p < 0) return line;
-  var key = line.slice(0, p), value = line.slice(p + 1);
-  return (preflightLabels[key] ? t.apply(null, preflightLabels[key]) : key) +
-    '：' + (preflightValues[value] ? t.apply(null, preflightValues[value]) : value);
- }).join('\n');
-}
-function healthMessage(raw) {
- var result = (raw || '').trim();
- if (result === 'healthy')
-  return t('检测通过：旁路由 Ping 和 DNS 均正常（不代表代理出口正常）。',
-           'Passed: bypass router Ping and DNS respond (proxy exit not verified).');
- if (result === 'unhealthy')
-  return t('检测失败：旁路由 Ping 或 DNS 不可用。',
-           'Failed: bypass router Ping or DNS is unavailable.');
- return t('检测结果：', 'Check result: ') + result;
-}
-function proxyMessage(raw) {
- return (raw || '').trim() === 'proxy_healthy' ?
-  t('真实代理出口检测通过。', 'Real proxy exit check passed.') :
-  t('真实代理出口不可用或尚未配置检测端点。', 'Real proxy exit unavailable or check endpoint not configured.');
-}
-function localError(raw) {
- var err = (raw || '').trim();
- if (!zh()) return err;
- if (err.indexOf('forwarding path not verified') >= 0)
-  return '尚未完成同网段转发验证，禁止启用自动容灾。';
- if (err.indexOf('real proxy health check failed') >= 0)
-  return '真实代理出口检测失败，无法启用自动容灾。';
- if (err.indexOf('proxy exit check failed') >= 0) return '真实代理出口检测未通过，未启动测试。';
- if (err.indexOf('test client IP not configured') >= 0) return '请先填写并保存测试设备 IPv4 地址。';
- if (err.indexOf('test client not in LAN') >= 0) return '测试设备不在当前局域网内。';
- if (err.indexOf('cannot determine bypass MAC') >= 0) return '无法读取旁路由 MAC 地址，已拒绝测试以避免转发环路。';
- if (err.indexOf('test already running') >= 0) return '测试已在运行，请先停止当前测试。';
- if (err.indexOf('only permitted in direct mode') >= 0) return '只有在主路由直连模式下才能启动单设备测试。';
- if (err.indexOf('watchdog unavailable') >= 0) return '安全回滚进程启动失败，已取消测试。';
- if (err.indexOf('Proxy endpoint must') >= 0) return '检测地址必须使用当前配置的旁路由 IP 和真实代理端口。';
- if (err.indexOf('config invalid') >= 0)
-  return '基础配置无效，未对网络进行更改。';
- return err;
-}
-function localizeLog(raw) {
- if (!raw) return t('尚无记录', 'No records yet');
- if (zh()) return raw;
- var translations = [
-  ['用户选择直连', 'Direct mode selected by user'],
-  ['服务停止，保持小米直连', 'Service stopped; primary router direct mode retained'],
-  ['守护进程启动，安全默认直连', 'Monitor started; safe direct mode is default'],
-  ['旁路由健康检查连续失败，已回退小米直连', 'Bypass health checks failed; switched to direct mode'],
-  ['旁路由恢复稳定，已启用引流', 'Bypass recovered; forwarding enabled'],
-  ['引流规则安装失败，继续直连', 'Forwarding setup failed; staying in direct mode'],
-  ['用户开启自动模式', 'Automatic failover selected by user'],
-  ['Webhook 通知发送失败', 'Webhook notification failed'],
-  ['代理出口检测地址未配置或不是旁路由地址', 'Proxy endpoint not configured or invalid']
+function showError(e) {
+ var s=String(e.message||e);
+ var dict=[
+  ['forwarding path not verified',T('尚未完成安全验证，不能开启全屋保护。','Full-home protection is locked until validated.')],
+  ['real proxy health check failed',T('代理连通性检查失败。','Proxy connectivity check failed.')],
+  ['Invalid bypass IP',T('请输入正确的旁路由 IPv4 地址。','Enter a valid bypass router IP.')],
+  ['Bypass is not on the LAN',T('旁路由不在主路由局域网内。','Bypass router is not on this LAN.')],
+  ['Proxy endpoint must',T('代理检测入口不正确。','Invalid proxy test endpoint.')],
+  ['test client IP not configured',T('请先填写测试设备地址。','Enter a test client IP first.')],
+  ['proxy exit check failed',T('代理出口测试尚未通过，未修改网络。','Proxy check failed; no routing changes made.')]
  ];
- return translations.reduce(function(s, pair) { return s.split(pair[0]).join(pair[1]); }, raw);
+ dict.some(function(d){if(s.indexOf(d[0])>=0){s=d[1];return true;}return false;});
+ message(s,true);
 }
-function error(e) {
- ui.addNotification(null, E('p', {}, localError(String(e.message || e))), 'danger');
+function renderSummary(data) {
+ var s=parse(data);
+ var address=s.bypass||'';
+ addrInput.value=address;
+ var active=s.mode==='auto' && s.state==='bypass';
+ header.replaceChildren(
+  E('h3',{},active?T('网络保护运行中','Network protection active'):T('网络保护尚未开启','Network protection is not active')),
+  E('p',{},active?T('正在使用旁路由；出现异常时将尝试切回主路由。','Using bypass router with fallback enabled.'):
+    T('你的网络保持原样。完成检查后，才能开启自动保护。','Your network is unchanged. Complete checks before enabling protection.'))
+ );
+ var configured=!!address;
+ var validated=s.forwarding_verified==='1' && s.proxy_check==='configured';
+ guide.replaceChildren(
+  E('h3',{},T('只需三步','Just three steps')),
+  E('div',{'class':'cbi-section'},[
+   E('h4',{},T('第一步：填写旁路由地址','Step 1: Enter bypass router IP')),
+   E('p',{},T('通常可以在旁路由管理页面查看，不需要填写端口。','Find this IP on your bypass router. No port required.')),
+   addrInput,
+   ' ',
+   E('button',{'class':'btn cbi-button-action','click':function(){
+    var ip=addrInput.value.trim();
+    run('set-bypass',[ip]).then(function(){message(T('地址已保存。','Address saved.'));return reload();}).catch(showError);
+   }},T('保存地址','Save address'))
+  ]),
+  E('div',{'class':'cbi-section'},[
+   E('h4',{},T('第二步：检查网络','Step 2: Check connection')),
+   E('p',{},T('只检查连接，不更改任何路由规则。','Read-only check; no routing changes.')),
+   E('button',{'class':'btn cbi-button','disabled':!configured,'click':function(){
+    run('check').then(function(v){
+     message(v.trim()==='healthy'?
+      T('旁路由连接正常。代理出口和故障回退尚需进一步验证。','Bypass router reachable. Proxy and failover not yet verified.'):
+      T('未能连接旁路由，请检查地址或旁路由状态。','Bypass router unreachable.'));
+    }).catch(showError);
+   }},T('一键检查','Check now'))
+  ]),
+  E('div',{'class':'cbi-section'},[
+   E('h4',{},T('第三步：开启自动保护','Step 3: Turn on protection')),
+   E('p',{},validated?
+     T('已配置检测入口并记录转发验证标志；开启前仍应确认真实回程测试。','Configuration flag present; confirm real-world return-path testing.'):
+     T('仍需完成真实引流与回退测试。为保护家庭网络，暂不允许开启。','Real routing and fallback tests are still required. Activation remains locked for safety.')),
+   E('button',{'class':'btn cbi-button-positive','disabled':!validated,'click':function(){
+    ui.showModal(T('确认开启','Confirm activation'),[
+     E('p',{},T('开启后会修改 IPv4 策略路由。确认已完成真实回程验证。','This changes live IPv4 routing. Confirm return-path validation.')),
+     E('button',{'class':'btn','click':ui.hideModal},T('取消','Cancel')),' ',
+     E('button',{'class':'btn cbi-button-positive','click':function(){ui.hideModal();run('auto').then(reload).catch(showError);}},T('确认','Confirm'))
+    ]);
+   }},T('开启自动保护','Enable protection')),
+   ' ',
+   E('button',{'class':'btn cbi-button-negative','click':function(){
+    run('direct').then(reload).catch(showError);
+   }},T('恢复主路由直连','Use primary router directly'))
+  ])
+ );
+ if (proxyInput && document.activeElement!==proxyInput) proxyInput.value=s.proxy_endpoint||'';
+ if (testInput && document.activeElement!==testInput) testInput.value=s.test_client||'';
+ return s;
 }
-function refresh() {
- return Promise.all([call('status'), call('logs')]).then(function(r) {
-  statusBox.textContent = localizeStatus(r[0]);
-  var ipMatch = r[0].match(/^test_client=(.*)$/m);
-  if (ipMatch && clientInput && document.activeElement !== clientInput) clientInput.value = ipMatch[1];
-  var epMatch = r[0].match(/^proxy_endpoint=(.*)$/m);
-  if (epMatch && proxyInput && document.activeElement !== proxyInput) proxyInput.value = epMatch[1];
-  logBox.textContent = localizeLog(r[1]);
- }).catch(error);
+function reload() {
+ return Promise.all([run('status'),run('logs')]).then(function(a){
+  renderSummary(a[0]);
+  events.textContent=a[1]||T('暂无事件','No events');
+  return a[0];
+ }).catch(showError);
 }
 return view.extend({
- load: function() { return Promise.all([call('status'), call('logs')]); },
- render: function(data) {
-  statusBox = E('pre', {'style':'white-space:pre-wrap'}, localizeStatus(data[0]));
-  var testIp = (data[0].match(/^test_client=(.*)$/m) || ['', ''])[1];
-  clientInput = E('input', {'class':'cbi-input-text','type':'text','placeholder':'192.168.1.123','value':testIp});
-  var proxyEp = (data[0].match(/^proxy_endpoint=(.*)$/m) || ['', ''])[1];
-  proxyInput = E('input', {'class':'cbi-input-text','type':'text','placeholder':'socks5h://192.168.1.2:1080','value':proxyEp});
-  logBox = E('pre', {'style':'white-space:pre-wrap;max-height:320px;overflow:auto'}, localizeLog(data[1]));
-  poll.add(refresh, 5);
-  return E('div', {}, [
-   E('h2', {}, t('旁路由智能容灾 · v0.2.0-dev', 'Bypass Router Failover · v0.2.0-dev')),
-   E('p', {}, t('安装于小米主路由。当前仅管理 IPv4，默认直连。自动容灾需要真实代理出口与回程转发验证。',
-      'Installed on the primary router. IPv4 only; direct mode by default. Auto mode requires proxy and forwarding validation.')),
-   E('div', {'class':'cbi-section'}, [
-    E('h3', {}, t('运行状态', 'Running status')), statusBox,
-    E('button', {'class':'btn cbi-button', 'click':function(){
-      call('preflight').then(function(v){ui.addNotification(null,E('pre',{},localizePreflight(v)));}).catch(error);
-    }}, t('运行安全预检', 'Run safety preflight')),
-    ' ',
-    E('button', {'class':'btn cbi-button', 'click':function(){
-      call('check-proxy').then(function(v){ui.addNotification(null,E('p',{},proxyMessage(v)));}).catch(error);
-    }}, t('检测真实代理出口', 'Check real proxy exit')),
-    ' ',
-    E('button', {'class':'btn cbi-button', 'click':function(){
-      call('check').then(function(v){ui.addNotification(null,E('p',{},healthMessage(v)));}).catch(error);
-    }}, t('检查旁路由', 'Check bypass router')),
-    ' ',
-    E('button', {'class':'btn cbi-button-negative', 'click':function(){call('direct').then(refresh).catch(error);}},
-       t('强制小米直连', 'Force direct mode')),
-    ' ',
-    E('button', {'class':'btn cbi-button-positive', 'click':function(){
-      ui.showModal(t('确认启动自动容灾','Confirm automatic failover'), [
-       E('p', {}, t('自动模式会修改运行中的 IPv4 策略路由。必须先验证代理出口和同网段回程，未验证时程序会拒绝启用。',
-        'Auto mode changes active IPv4 policy routing. Proxy and same-subnet return paths must be validated first.')),
-       E('div', {'class':'right'}, [
-        E('button', {'class':'btn','click':ui.hideModal}, t('取消', 'Cancel')), ' ',
-        E('button', {'class':'btn cbi-button-positive','click':function(){ui.hideModal();call('auto').then(refresh).catch(error);}},
-          t('确认启动', 'Confirm'))
-       ])
-      ]);
-    }}, t('启用自动容灾', 'Enable automatic failover'))
-   ]),
-   E('div', {'class':'cbi-section'}, [
-    E('h3', {}, t('单设备安全测试（60 秒后自动撤销）', 'Single-client safety test (auto rollback after 60s)')),
-    E('p', {}, t('旁路由 HTTP/SOCKS5 代理入口（必须已实际开放，仅填真实端口）：', 'Existing bypass HTTP/SOCKS5 proxy endpoint:')),
-    proxyInput, ' ',
-    E('button', {'class':'btn cbi-button', 'click':function(){call('set-proxy',[proxyInput.value.trim()]).then(refresh).catch(error);}}, t('保存检测入口','Save proxy endpoint')),
-
-    E('p', {}, t('仅选择一台测试设备，其他设备保持主路由直连。需要先通过真实代理出口检测；禁止用全屋设备执行首次测试。',
-     'Route one test device only, keeping others direct. A working real-proxy endpoint is required.')),
-    E('label', {}, t('测试设备 IPv4 地址：', 'Test device IPv4: ')), clientInput, ' ',
-    E('button', {'class':'btn cbi-button', 'click':function(){
-      call('set-client', [clientInput.value.trim()]).then(refresh).catch(error);
-    }}, t('保存测试设备', 'Save test device')), ' ',
-    E('button', {'class':'btn cbi-button-positive', 'click':function(){
-      ui.showModal(t('确认临时引流测试', 'Confirm temporary routing test'), [
-       E('p', {}, t('只对选定 IPv4 地址安装临时策略路由。60 秒自动撤销；已有连接可能中断。开始前务必确保有独立的主路由管理入口。',
-        'A temporary route applies to one IPv4 address for 60 seconds. Existing connections may reset.')),
-       E('div', {'class':'right'}, [
-        E('button', {'class':'btn', 'click':ui.hideModal}, t('取消','Cancel')), ' ',
-        E('button', {'class':'btn cbi-button-positive', 'click':function(){
-          ui.hideModal(); call('test-start').then(function(){ refresh(); ui.addNotification(null,E('p',{},t('单设备测试已启动，60 秒后自动撤销。','Test started; automatic rollback in 60 seconds.'))); }).catch(error);
-        }}, t('开始 60 秒测试','Start 60s test'))
-       ])
-      ]);
-    }}, t('开始单设备测试','Start single-client test')), ' ',
-    E('button', {'class':'btn cbi-button-negative', 'click':function(){
-      call('test-stop').then(refresh).catch(error);
-    }}, t('立即撤销测试','Stop and roll back'))
-   ]),
-   E('div', {'class':'cbi-section'}, [E('h3', {}, t('最近运行日志', 'Recent logs')), logBox]),
-   E('p', {}, t('开发预览：IPv6 保留现状，DNS 保持主路由配置；通知和代理检测需要额外配置。未验证回程时禁止自动引流。',
-     'Development preview: IPv6 unchanged, DNS kept on primary router. Alerts and proxy checks require configuration. Auto forwarding requires return-path validation.'))
+ load:function(){return Promise.all([run('status'),run('logs')]);},
+ render:function(data){
+  var s=parse(data[0]);
+  header=E('div',{'class':'cbi-section'});
+  guide=E('div',{});
+  addrInput=E('input',{'class':'cbi-input-text','type':'text','placeholder':'192.168.1.2','value':s.bypass||''});
+  testInput=E('input',{'class':'cbi-input-text','type':'text','placeholder':'192.168.1.100','value':s.test_client||''});
+  proxyInput=E('input',{'class':'cbi-input-text','type':'text','placeholder':'socks5h://192.168.1.2:实际端口','value':s.proxy_endpoint||''});
+  events=E('pre',{'style':'white-space:pre-wrap;max-height:280px;overflow:auto'},data[1]||T('暂无事件','No events'));
+  advanced=E('details',{'class':'cbi-section'},[
+   E('summary',{'style':'cursor:pointer;font-weight:bold;padding:12px 0'},T('高级设置（了解网络的用户）','Advanced settings (experienced users)')),
+   E('p',{},T('以下为维护工具，普通用户无需修改。单设备临时测试最多 60 秒，尚未通过实机安全验收。','Maintenance tools. Single-client tests last at most 60 seconds and are not field-validated.')),
+   E('h4',{},T('真实代理检测','Real proxy check')),
+   proxyInput,' ',
+   E('button',{'class':'btn cbi-button','click':function(){run('set-proxy',[proxyInput.value.trim()]).then(reload).catch(showError);}},T('保存检测入口','Save test endpoint')),
+   ' ',
+   E('button',{'class':'btn cbi-button','click':function(){run('check-proxy').then(function(v){message(v.trim()==='proxy_healthy'?T('代理检测通过','Proxy check passed'):T('代理出口不可用或未配置','Proxy unavailable or not configured'));}).catch(showError);}},T('检测代理','Check proxy')),
+   E('h4',{},T('指定设备临时测试','Temporary single-client test')),
+   testInput,' ',
+   E('button',{'class':'btn cbi-button','click':function(){run('set-client',[testInput.value.trim()]).then(reload).catch(showError);}},T('保存测试设备','Save test client')),
+   ' ',
+   E('button',{'class':'btn cbi-button','click':function(){
+    ui.showModal(T('确认临时测试','Confirm temporary test'),[
+     E('p',{},T('可能造成这台设备短暂断网，60 秒撤销依赖看门狗正常运行。','May disrupt this device. 60-second rollback relies on watchdog.')),
+     E('button',{'class':'btn','click':ui.hideModal},T('取消','Cancel')),' ',
+     E('button',{'class':'btn cbi-button-positive','click':function(){ui.hideModal();run('test-start').then(reload).catch(showError);}},T('开始测试','Start test'))
+    ]);
+   }},T('运行 60 秒测试','Run 60-second test')),
+   ' ',
+   E('button',{'class':'btn cbi-button-negative','click':function(){run('test-stop').then(reload).catch(showError);}},T('撤销测试','Cancel test')),
+   E('h4',{},T('诊断','Diagnostics')),
+   E('button',{'class':'btn cbi-button','click':function(){run('preflight').then(function(v){message(v);}).catch(showError);}},T('查看诊断详情','Show diagnostics')),
+   E('h4',{},T('运行日志','Event log')),events
+  ]);
+  renderSummary(data[0]);
+  poll.add(reload,5);
+  return E('div',{},[
+   E('h2',{},T('智能网络保护','Smart network protection')),
+   E('p',{},T('旁路由异常时，尽可能保障网络正常访问。首次使用请从第一步开始。','Help keep the network connected if a bypass router fails. Start at step one.')),
+   header,guide,advanced,
+   E('p',{},T('开发预览：目前不能保证旁路由整机故障时自动接管；高级测试通过前请勿手动解除保护限制。','Development preview: full failover is not yet validated. Do not bypass safety restrictions.'))
   ]);
  },
- handleSaveApply:null, handleSave:null, handleReset:null
+ handleSaveApply:null,handleSave:null,handleReset:null
 });
