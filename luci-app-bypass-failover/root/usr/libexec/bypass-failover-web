@@ -4,6 +4,20 @@ BIN=/usr/sbin/bypass-failover
 case "${1:-status}" in
  status|check|check-proxy|preflight|logs|test-start|test-stop) exec "$BIN" "$1" ;;
  auto|direct) exec "$BIN" "$1" ;;
+ set-bypass)
+  ip="${2:-}"
+  case "$ip" in ''|*[!0-9.]*|.*|*..*|*.) echo 'Invalid bypass IP' >&2; exit 2;; esac
+  printf '%s\n' "$ip" | awk -F. 'NF==4 {for(i=1;i<=4;i++) if($i !~ /^[0-9]+$/ || $i>255 || length($i)>3) exit 1; exit 0} {exit 1}' || exit 2
+  primary=$(uci -q get network.lan.ipaddr || true)
+  [ "$ip" != "$primary" ] || { echo 'Bypass cannot be primary router' >&2; exit 2; }
+  lan=$(uci -q get bypass_failover.main.lan || echo br-lan)
+  ip -4 route get "$ip" | grep -q "dev $lan" || { echo 'Bypass is not on the LAN' >&2; exit 2; }
+  uci set "bypass_failover.main.bypass=$ip"
+  uci set "bypass_failover.main.proxy_endpoint="
+  uci set "bypass_failover.main.forwarding_verified=0"
+  uci set "bypass_failover.main.mode=direct"
+  uci commit bypass_failover
+  echo saved ;;
  set-proxy)
   bypass=$(uci -q get bypass_failover.main.bypass || true)
   endpoint="${2:-}"
