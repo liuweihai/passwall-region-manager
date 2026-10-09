@@ -29,8 +29,14 @@ printf '%s\n' /etc/config/bypass_failover > "$WORK/control/conffiles"
 printf '2.0\n' > "$WORK/debian-binary"
 tar -C "$WORK/control" -czf "$WORK/control.tar.gz" .
 tar -C "$WORK/data" -czf "$WORK/data.tar.gz" .
+# OpenWrt 24.10 opkg expects the classic gzipped tar IPK envelope,
+# not a Debian ar archive. Match OpenWrt scripts/ipkg-build.
 (
   cd "$WORK"
-  ar cr "$OUT/luci-app-bypass-failover_0.3.0-beta1_all.ipk" debian-binary control.tar.gz data.tar.gz
+  tar --format=gnu --numeric-owner -cf - ./debian-binary ./data.tar.gz ./control.tar.gz | gzip -n > "$OUT/luci-app-bypass-failover_0.3.0-beta1_all.ipk"
 )
-echo "Built $OUT/luci-app-bypass-failover_0.3.0-beta1_all.ipk"
+# Reject malformed packages at build time; verify both inner archives.
+tar -tzf "$OUT/luci-app-bypass-failover_0.3.0-beta1_all.ipk" | grep -Fx './control.tar.gz' >/dev/null
+tar -tzf "$OUT/luci-app-bypass-failover_0.3.0-beta1_all.ipk" | grep -Fx './data.tar.gz' >/dev/null
+tar -tzf "$OUT/luci-app-bypass-failover_0.3.0-beta1_all.ipk" | grep -Fx './debian-binary' >/dev/null
+echo "Built $OUT/luci-app-bypass-failover_0.3.0-beta1_all.ipk (OpenWrt opkg tar.gz format)"
