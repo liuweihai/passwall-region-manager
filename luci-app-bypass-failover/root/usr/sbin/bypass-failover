@@ -236,12 +236,12 @@ daemon() {
   done
 }
 start() {
-  # Startup never adopts an old trial; remove our trial rules before monitoring.
-  # No default route or unrelated firewall table is changed.
+  # Never wipe a live trial on an incidental "start" for an already-running daemon.
+  [ -f "$PID" ] && kill -0 "$(cat "$PID")" 2>/dev/null && { echo already-running; return 0; }
+  # A fresh service start must discard abandoned temporary policy rules.
   test_clear
   rm -f "$TEST_PID"
   say '服务启动前已清理临时测试规则'
-  [ -f "$PID" ] && kill -0 "$(cat "$PID")" 2>/dev/null && { echo already-running; return 0; }
   check_config || { echo 'config invalid; no changes made' >&2; return 1; }
   ( "$0" daemon </dev/null >/dev/null 2>&1 & )
   echo started
