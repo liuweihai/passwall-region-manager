@@ -3,7 +3,7 @@
 # NEVER installed or started on the primary router.
 set -u
 TABLE=bypass_failover_side
-LEASE=/tmp/bypass-failover-side-lease.pid
+LEASE=/tmp/bypass-failover-side-lease.token
 CFG=/etc/config/bypass_failover_side
 get() { uci -q get "bypass_failover_side.main.$1" 2>/dev/null || printf '%s' "$2"; }
 valid_ip() {
@@ -57,25 +57,33 @@ EOF
  nft list table inet "$TABLE" >/dev/null 2>&1 || return 1
  # Short, detached safety lease. No permanent NAT rule without separately
  # implemented mutual heartbeat. Applying again does not extend the lease.
- ( "$0" lease-expire </dev/null >/dev/null 2>&1 & )
+ token="$(date +%s)-$"
+ printf '%s\n' "$token" > "$LEASE"
+ ( "$0" lease-expire "$token" </dev/null >/dev/null 2>&1 & )
  echo 'companion applied for up to 60 seconds; not a connectivity proof'
 }
 lease_expire() {
- # Bound trial to 60 seconds even if the controlling browser disconnects.
+ # Only withdraw our own generation: an older worker may not delete a newer
+ # test's rules after the operator removes and reapplies them.
+ expected="${1:-}"
+ [ -n "$expected" ] || return 1
  sleep 60
+ [ "$(cat "$LEASE" 2>/dev/null)" = "$expected" ] || return 0
  nft delete table inet "$TABLE" >/dev/null 2>&1 || true
+ rm -f "$LEASE"
 }
 remove() {
  # Own table only; never touch PassWall/fw4/custom NAT tables.
  if nft list table inet "$TABLE" >/dev/null 2>&1; then
   nft delete table inet "$TABLE" || return 1
  fi
+ rm -f "$LEASE"
  echo 'companion removed'
 }
 case "${1:-audit}" in
  audit) audit;;
  apply) apply;;
  remove) remove;;
- lease-expire) lease_expire;;
+ lease-expire) lease_expire "${2:-}";;
  *) echo 'usage: audit|apply|remove' >&2; exit 2;;
 esac
