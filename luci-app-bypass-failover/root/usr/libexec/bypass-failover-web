@@ -1,0 +1,8 @@
+#!/bin/sh
+set -u
+BIN=/usr/sbin/bypass-failover
+case "${1:-status}" in
+ status|check|logs) exec "$BIN" "$1" ;;
+ auto|direct) exec "$BIN" "$1" ;;
+ *) echo 'Unsupported operation' >&2; exit 2 ;;
+esac
