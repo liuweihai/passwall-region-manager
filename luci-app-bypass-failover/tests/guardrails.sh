@@ -8,6 +8,7 @@ BUILD=build-ipk.sh
 sh -n "$CORE"
 sh -n root/usr/libexec/bypass-failover-web
 sh -n root/etc/init.d/bypass-failover
+sh -n root/etc/hotplug.d/iface/95-bypass-failover
 if grep -Eq 'snat ip to \$PRIMARY|snat ip to 192\.168\.31\.1' "$CORE"; then
  echo 'FAIL: obsolete primary SNAT is present' >&2
  exit 1
@@ -36,4 +37,4 @@ if grep -q 'bypass-failover-side_' "$BUILD"; then
  echo 'FAIL: main packaging must not create a side-router IPK' >&2
  exit 1
 fi
-echo 'primary-only beta9 static safety checks passed'
+echo 'primary-only beta10 static safety checks passed'
