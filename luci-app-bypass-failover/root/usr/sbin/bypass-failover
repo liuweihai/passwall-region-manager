@@ -118,7 +118,9 @@ test_status() {
   case "$until" in *[!0-9]*|'') until=0;; esac
   remain=$((until-$(date +%s)))
   if [ "$remain" -gt 0 ] && nft list table inet "$TEST_NFT" >/dev/null 2>&1; then
-   echo "test=running"; echo "test_remaining=$remain"; echo "test_client=$(val test_client '')"; return
+   echo "test=running"; echo "test_remaining=$remain"; echo "test_client=$(val test_client '')"
+   nft -a list chain inet "$TEST_NFT" mark_test 2>/dev/null | awk '/counter packets/{for(i=1;i<=NF;i++) if($i=="packets"){print "test_packets="$(i+1); exit}}'
+   return
   fi
   test_clear
  fi
@@ -166,7 +168,11 @@ test_start() {
 table inet $TEST_NFT {
  chain mark_test {
   type filter hook prerouting priority mangle; policy accept;
-  iifname "$LAN" ether saddr != $mac ip saddr $client ip daddr != 10.0.0.0/8 ip daddr != 172.16.0.0/12 ip daddr != 192.168.0.0/16 ip daddr != 127.0.0.0/8 ip daddr != 169.254.0.0/16 ip daddr != 224.0.0.0/4 meta mark set $TEST_MARK
+  iifname "$LAN" ether saddr != $mac ip saddr $client ip daddr != 10.0.0.0/8 ip daddr != 172.16.0.0/12 ip daddr != 192.168.0.0/16 ip daddr != 127.0.0.0/8 ip daddr != 169.254.0.0/16 ip daddr != 224.0.0.0/4 counter meta mark set $TEST_MARK
+ }
+ chain test_snat {
+  type nat hook postrouting priority srcnat - 1; policy accept;
+  oifname "$LAN" meta mark $TEST_MARK ip daddr != 10.0.0.0/8 ip daddr != 172.16.0.0/12 ip daddr != 192.168.0.0/16 counter snat ip to $PRIMARY
  }
 }
 EOF
