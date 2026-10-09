@@ -10,6 +10,14 @@ function call(arg) {
   return r.stdout || '';
  });
 }
+function healthMessage(raw) {
+ var result = (raw || '').trim();
+ if (result === 'healthy')
+  return _('Health check passed: bypass router Ping and DNS are responding.');
+ if (result === 'unhealthy')
+  return _('Health check failed: bypass router Ping or DNS is unavailable.');
+ return _('Health check returned: ') + result;
+}
 function error(e) { ui.addNotification(null, E('p', {}, String(e.message || e)), 'danger'); }
 function refresh() {
  return Promise.all([call('status'),call('logs')]).then(function(r) {
@@ -28,7 +36,7 @@ return view.extend({
    E('p', {}, '安装位置：小米主路由。仅处理 IPv4；默认直连。启用自动模式前请确认旁路由可接收来自主路由的转发流量。'),
    E('div', {'class':'cbi-section'}, [
     E('h3', {}, '运行状态'),statusBox,
-    E('button', {'class':'btn cbi-button', 'click':function(){call('check').then(function(v){ui.addNotification(null,E('p',{},v));}).catch(error);}}, '检查旁路由'),
+    E('button', {'class':'btn cbi-button', 'click':function(){call('check').then(function(v){ui.addNotification(null,E('p',{},healthMessage(v)));}).catch(error);}}, '检查旁路由'),
     ' ',
     E('button', {'class':'btn cbi-button-negative', 'click':function(){call('direct').then(refresh).catch(error);}}, '强制小米直连'),
     ' ',
