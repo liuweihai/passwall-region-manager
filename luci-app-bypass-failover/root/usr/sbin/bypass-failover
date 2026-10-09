@@ -48,10 +48,15 @@ check_config() {
 # transparent TCP path. Uses only one destination IPv4 and a dedicated policy
 # rule, and does not require a remotely reachable SOCKS listener.
 probe_clear() {
-  nft delete table inet "$PROBE_NFT" 2>/dev/null || true
-  while ip -4 rule del priority 10202 2>/dev/null; do :; done
-  ip -4 route flush table "$PROBE_TABLE" 2>/dev/null || true
-  rmdir "$PROBE_LOCK" 2>/dev/null || true
+  # Do not touch a third-party route table or rule that happens to use 203.
+  if [ -d "$PROBE_LOCK" ] || nft list table inet "$PROBE_NFT" >/dev/null 2>&1; then
+    nft delete table inet "$PROBE_NFT" 2>/dev/null || true
+    while ip -4 rule show | grep -Eq '^10202:.*fwmark 0x4248 .*lookup 203'; do
+      ip -4 rule del priority 10202 fwmark "$PROBE_MARK" table "$PROBE_TABLE" 2>/dev/null || break
+    done
+    ip -4 route flush table "$PROBE_TABLE" 2>/dev/null || true
+    rmdir "$PROBE_LOCK" 2>/dev/null || true
+  fi
 }
 probe_ip() {
   curl -4 -fsS --connect-timeout 3 --max-time 8 --interface "$LAN" \
@@ -255,7 +260,7 @@ status() {
   echo "lan=$(val lan br-lan)"
   echo "ipv6=not-managed"
   echo "proxy_endpoint=$(val proxy_endpoint '')"
-  echo "proxy_check=$(case "$(val proxy_endpoint '')" in '') echo unconfigured;; *) echo configured;; esac)"
+  echo "proxy_check=$(case "$(val proxy_endpoint '')" in '') echo transparent;; *) echo configured;; esac)"
   echo "forwarding_verified=$(val forwarding_verified 0)"
   echo "dns_strategy=primary-router"
   echo "ipv6_strategy=unchanged"
