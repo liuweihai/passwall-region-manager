@@ -4,7 +4,7 @@
 'require poll';
 'require ui';
 
-var CMD = '/usr/libexec/bypass-failover-web', statusBox, logBox;
+var CMD = '/usr/libexec/bypass-failover-web', statusBox, logBox, testInfo, clientInput;
 function zh() {
  // LuCI may report "auto" while its translated menus are already Chinese.
  var langs = [L.env.lang, document.documentElement.lang];
@@ -21,8 +21,8 @@ function zh() {
  return String(navigator.language || '').toLowerCase().indexOf('zh') === 0;
 }
 function t(cn, en) { return zh() ? cn : en; }
-function call(arg) {
- return fs.exec(CMD, [arg]).then(function(r) {
+function call(arg, more) {
+ return fs.exec(CMD, [arg].concat(more || [])).then(function(r) {
   if (r.code) throw new Error(localError(r.stderr || '') || t('请求失败', 'Request failed'));
   return r.stdout || '';
  });
@@ -34,7 +34,9 @@ var statusLabels = {
  proxy_check:['代理出口检测配置','Proxy exit configuration'],
  forwarding_verified:['引流验证许可','Forwarding verified'],
  dns_strategy:['DNS 策略','DNS strategy'], ipv6_strategy:['IPv6 策略','IPv6 strategy'],
- notifications:['故障通知','Notifications']
+ notifications:['故障通知','Notifications'],
+ test:['单设备测试','Single-device test'], test_remaining:['剩余时间（秒）','Seconds remaining'],
+ test_client:['测试设备 IP','Test device IP']
 };
 var stateLabels = {
  direct:['小米主路由直连','Direct through primary router'],
@@ -47,7 +49,7 @@ var stateLabels = {
  'primary-router':['保持主路由 DNS','Keep primary router DNS'],
  unchanged:['保持原有设置','Unchanged'],
  '0':['未验证，禁止自动引流','Not verified; automatic forwarding blocked'],
- '1':['已确认','Verified']
+ '1':['已确认','Verified'], idle:['未运行','Idle']
 };
 function translateValue(key, value) {
  if ((key === 'mode' || key === 'state' || key === 'daemon' ||
@@ -130,6 +132,8 @@ function error(e) {
 function refresh() {
  return Promise.all([call('status'), call('logs')]).then(function(r) {
   statusBox.textContent = localizeStatus(r[0]);
+  var ipMatch = r[0].match(/^test_client=(.*)$/m);
+  if (ipMatch && clientInput && document.activeElement !== clientInput) clientInput.value = ipMatch[1];
   logBox.textContent = localizeLog(r[1]);
  }).catch(error);
 }
@@ -137,6 +141,8 @@ return view.extend({
  load: function() { return Promise.all([call('status'), call('logs')]); },
  render: function(data) {
   statusBox = E('pre', {'style':'white-space:pre-wrap'}, localizeStatus(data[0]));
+  var testIp = (data[0].match(/^test_client=(.*)$/m) || ['', ''])[1];
+  clientInput = E('input', {'class':'cbi-input-text','type':'text','placeholder':'192.168.1.123','value':testIp});
   logBox = E('pre', {'style':'white-space:pre-wrap;max-height:320px;overflow:auto'}, localizeLog(data[1]));
   poll.add(refresh, 5);
   return E('div', {}, [
@@ -171,6 +177,30 @@ return view.extend({
        ])
       ]);
     }}, t('启用自动容灾', 'Enable automatic failover'))
+   ]),
+   E('div', {'class':'cbi-section'}, [
+    E('h3', {}, t('单设备安全测试（60 秒后自动撤销）', 'Single-client safety test (auto rollback after 60s)')),
+    E('p', {}, t('仅选择一台测试设备，其他设备保持主路由直连。需要先通过真实代理出口检测；禁止用全屋设备执行首次测试。',
+     'Route one test device only, keeping others direct. A working real-proxy endpoint is required.')),
+    E('label', {}, t('测试设备 IPv4 地址：', 'Test device IPv4: ')), clientInput, ' ',
+    E('button', {'class':'btn cbi-button', 'click':function(){
+      call('set-client', [clientInput.value.trim()]).then(refresh).catch(error);
+    }}, t('保存测试设备', 'Save test device')), ' ',
+    E('button', {'class':'btn cbi-button-positive', 'click':function(){
+      ui.showModal(t('确认临时引流测试', 'Confirm temporary routing test'), [
+       E('p', {}, t('只对选定 IPv4 地址安装临时策略路由。60 秒自动撤销；已有连接可能中断。开始前务必确保有独立的主路由管理入口。',
+        'A temporary route applies to one IPv4 address for 60 seconds. Existing connections may reset.')),
+       E('div', {'class':'right'}, [
+        E('button', {'class':'btn', 'click':ui.hideModal}, t('取消','Cancel')), ' ',
+        E('button', {'class':'btn cbi-button-positive', 'click':function(){
+          ui.hideModal(); call('test-start').then(function(){ refresh(); ui.addNotification(null,E('p',{},t('单设备测试已启动，60 秒后自动撤销。','Test started; automatic rollback in 60 seconds.'))); }).catch(error);
+        }}, t('开始 60 秒测试','Start 60s test'))
+       ])
+      ]);
+    }}, t('开始单设备测试','Start single-client test')), ' ',
+    E('button', {'class':'btn cbi-button-negative', 'click':function(){
+      call('test-stop').then(refresh).catch(error);
+    }}, t('立即撤销测试','Stop and roll back'))
    ]),
    E('div', {'class':'cbi-section'}, [E('h3', {}, t('最近运行日志', 'Recent logs')), logBox]),
    E('p', {}, t('开发预览：IPv6 保留现状，DNS 保持主路由配置；通知和代理检测需要额外配置。未验证回程时禁止自动引流。',
