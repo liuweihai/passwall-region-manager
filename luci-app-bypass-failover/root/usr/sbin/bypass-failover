@@ -11,6 +11,12 @@ MARK=0x4246
 NFT=bypass_failover
 val() { uci -q get "bypass_failover.main.$1" 2>/dev/null || printf '%s' "$2"; }
 say() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG"; tail -n 400 "$LOG" > "$LOG.new"; mv "$LOG.new" "$LOG"; }
+notify() {
+  url=$(val webhook '')
+  case "$url" in https://*) ;; *) return 0;; esac
+  payload=$(jq -nc --arg text "$1" '{text:$text}') || return 0
+  curl -fLsS --connect-timeout 3 --max-time 6 -H 'Content-Type: application/json' -d "$payload" "$url" >/dev/null 2>&1 || say 'Webhook 通知发送失败'
+}
 valid_ip() { case "$1" in ''|*[!0-9.]*|.*|*..*|*.) return 1;; esac; echo "$1" | awk -F. 'NF==4 {for(i=1;i<=4;i++) if($i !~ /^[0-9]+$/ || $i>255 || length($i)>3) exit 1; exit 0} {exit 1}'; }
 check_config() {
   PRIMARY=$(val primary 192.168.31.1)
@@ -68,6 +74,7 @@ status() {
   echo "bypass=$(val bypass 192.168.31.2)"
   echo "lan=$(val lan br-lan)"
   echo "ipv6=not-managed"
+  echo "notifications=$(case "$(val webhook '')" in https://*) echo configured;; *) echo disabled;; esac)"
 }
 daemon() {
   check_config || { say '配置检查失败，保持直连'; clear_route; exit 1; }
@@ -85,9 +92,9 @@ daemon() {
     now=$(date +%s)
     current=$(cat "$STATE" 2>/dev/null || echo direct)
     if [ "$current" = bypass ] && [ "$failures" -ge "$FAIL" ]; then
-      clear_route; last=$now; say '旁路由健康检查连续失败，已回退小米直连'
+      clear_route; last=$now; say '旁路由健康检查连续失败，已回退小米直连'; notify '旁路由故障：已切换到小米直连'
     elif [ "$current" = direct ] && [ "$successes" -ge "$RECOVER" ] && [ $((now-last)) -ge "$HOLD" ]; then
-      if use_bypass; then last=$now; say '旁路由恢复稳定，已启用引流'; else last=$now; say '引流规则安装失败，继续直连'; fi
+      if use_bypass; then last=$now; say '旁路由恢复稳定，已启用引流'; notify '旁路由恢复：已重新启用代理引流'; else last=$now; say '引流规则安装失败，继续直连'; notify '旁路由恢复但引流失败：保持小米直连'; fi
     fi
     sleep "$INTERVAL"
   done
