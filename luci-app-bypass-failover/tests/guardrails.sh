@@ -6,6 +6,12 @@ CORE=root/usr/sbin/bypass-failover
 UI=htdocs/luci-static/resources/view/bypass-failover/dashboard.js
 BUILD=build-ipk.sh
 sh -n "$CORE"
+# Prevent regression: the detached watchdog must write its real shell PID.
+grep -F 'echo "$$" > "$TEST_PID"' "$CORE" >/dev/null || { echo 'FAIL: watchdog PID expansion missing' >&2; exit 1; }
+if grep -F 'echo "$" > "$TEST_PID"' "$CORE" >/dev/null; then
+ echo 'FAIL: broken watchdog PID expansion' >&2
+ exit 1
+fi
 sh -n root/usr/libexec/bypass-failover-web
 sh -n root/etc/init.d/bypass-failover
 sh -n root/etc/hotplug.d/iface/95-bypass-failover
