@@ -229,16 +229,11 @@ daemon() {
   done
 }
 start() {
-  # Recover interrupted temporary tests before starting any monitor daemon.
-  # This only removes rules owned by this plugin, not third-party tables.
-  if [ -f "$TEST_EXP" ]; then
-    expires=$(cat "$TEST_EXP" 2>/dev/null || echo 0)
-    case "$expires" in ''|*[!0-9]*) expires=0;; esac
-    if [ "$(date +%s)" -ge "$expires" ]; then
-      test_clear
-      say '启动时清理过期临时引流规则'
-    fi
-  fi
+  # Startup never adopts an old trial; remove our trial rules before monitoring.
+  # No default route or unrelated firewall table is changed.
+  test_clear
+  rm -f "$TEST_PID"
+  say '服务启动前已清理临时测试规则'
   [ -f "$PID" ] && kill -0 "$(cat "$PID")" 2>/dev/null && { echo already-running; return 0; }
   check_config || { echo 'config invalid; no changes made' >&2; return 1; }
   ( "$0" daemon </dev/null >/dev/null 2>&1 & )
