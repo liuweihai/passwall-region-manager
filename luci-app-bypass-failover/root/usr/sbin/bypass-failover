@@ -420,13 +420,25 @@ test_status() {
 }
 test_watchdog() {
  expected=$1
- echo "$$" > "$TEST_PID"
+ echo "$" > "$TEST_PID"
+ bypass_failures=0
  while :; do
   [ -f "$TEST_EXP" ] || break
   expires=$(cat "$TEST_EXP" 2>/dev/null || echo 0)
   [ "$expires" = "$expected" ] || break
   now=$(date +%s)
   [ "$now" -lt "$expires" ] || { test_clear; say '单设备测试到期，已自动撤销规则'; break; }
+  bypass_addr=$(val bypass '')
+  if ping -c 1 -W 1 "$bypass_addr" >/dev/null 2>&1; then
+    bypass_failures=0
+  else
+    bypass_failures=$((bypass_failures+1))
+    if [ "$bypass_failures" -ge 3 ]; then
+      say '真实引流测试：旁路由连续三次无响应，提前撤销'
+      test_clear
+      break
+    fi
+  fi
   # If packets match the client but none reach postrouting SNAT after 12s,
   # abort early rather than holding a broken connection for 60s.
   if [ $((expires-now)) -le 48 ]; then
