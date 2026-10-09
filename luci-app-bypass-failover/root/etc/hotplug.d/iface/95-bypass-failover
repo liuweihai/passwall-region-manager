@@ -1,0 +1,7 @@
+#!/bin/sh
+# netifd event bridge for the primary-router service.
+# Never changes network settings or starts live forwarding.
+case "$ACTION" in ifup|ifdown|ifupdate) ;; *) exit 0;; esac
+[ "${INTERFACE:-}" = lan ] || exit 0
+[ -x /usr/sbin/bypass-failover ] || exit 0
+/usr/sbin/bypass-failover event-check "$ACTION" >/dev/null 2>&1 || true
