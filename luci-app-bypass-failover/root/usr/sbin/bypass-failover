@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bypass Failover v0.3.0-beta4 (OpenWrt 24.10 / fw4) - IPv4 only.
+# Bypass Failover v0.3.0-beta6 (OpenWrt 24.10 / fw4) - IPv4 only.
 # Installed ONLY on the primary OpenWrt. Disabled by default.
 set -u
 CFG=/etc/config/bypass_failover
@@ -160,9 +160,8 @@ use_bypass() {
   # Fail closed to direct: build policy table before mark rule. Exclude router itself,
   # LAN/subnet destinations and all traffic originating at BYPASS.
   [ "$(val forwarding_verified 0)" = 1 ] || { say '未确认同网段回程验证，拒绝开启引流'; return 1; }
-  # Do not let a manual UCI flag alone override the known same-LAN SNAT
-  # hairpin risk. This implementation is not yet safe for production.
-  say '当前同网段 SNAT 回程仍未验收，拒绝开启全屋路由（安全锁定）'
+  # A UCI setting must never override unverified client return-path behavior.
+  say '单臂旁路由真实客户端回程未验收，拒绝开启全屋引流（安全锁定）'
   return 1
   # A single-arm bypass can emit return frames with an Internet source IP.
   # Exclude its layer-2 MAC, not just its IPv4 address, to avoid recirculation.
@@ -214,23 +213,35 @@ test_packets() {
  nft -a list chain inet "$TEST_NFT" "$1" 2>/dev/null |
    awk '/counter packets/{for(i=1;i<=NF;i++) if($i=="packets"){print $(i+1); exit}}'
 }
-# Non-mutating topology audit: show the unsafe direct-flow hairpin before
-# letting the user attempt another forwarding trial.
+# Read-only audit: learn from shunt's route-table conflict protection and
+# explicit gateway resolution. Never touch the other router or PassWall.
+# This is a configuration / L3 inspection, NOT end-to-end acceptance.
 topology_audit() {
  check_config || { echo 'topology=config_invalid'; return 1; }
- echo "topology=single_arm_lan"
+ echo 'topology=single_arm_lan'
  echo "primary=$PRIMARY"
  echo "bypass=$BYPASS"
  echo "lan=$LAN"
- bypass_default=$(ip -4 route show default 2>/dev/null | head -n 1)
- echo "primary_default=$bypass_default"
- echo "client_default_gateway=$PRIMARY"
- echo "side_default_gateway=not_observable_from_primary"
- echo "client_tcp_forwarding=unverified"
- echo "side_passwall_transparent_capture=unverified"
- echo "side_direct_return=unverified"
- echo "hairpin_snat=known_risk"
- echo "auto_enable=safety_locked"
+ echo 'deployment=primary_only'
+ echo 'side_package_required=no'
+ echo 'dhcp_changes=none'
+ echo 'proxy_port_exposure=none'
+ echo "primary_default=$(ip -4 route show default | head -n 1)"
+ echo "side_gateway_reachable=$(if ping -c 1 -W 1 "$BYPASS" >/dev/null 2>&1; then echo yes; else echo no; fi)"
+ echo "main_route=$(ip -4 route get 1.1.1.1 2>/dev/null | head -n 1)"
+ echo "candidate_policy_route=default via $BYPASS dev $LAN"
+ echo "router_forwarding=$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo unknown)"
+ echo "redirects_all=$(cat /proc/sys/net/ipv4/conf/all/send_redirects 2>/dev/null || echo unknown)"
+ echo "redirects_lan=$(cat "/proc/sys/net/ipv4/conf/$LAN/send_redirects" 2>/dev/null || echo unknown)"
+ if ip -4 rule show | grep -q '^10201:'; then echo 'policy_priority_10201=occupied'; else echo 'policy_priority_10201=free'; fi
+ if ip -4 rule show | grep -q '^10200:'; then echo 'test_priority_10200=occupied'; else echo 'test_priority_10200=free'; fi
+ if [ -n "$(ip -4 route show table "$TABLE" 2>/dev/null)" ]; then echo 'policy_table_201=occupied'; else echo 'policy_table_201=free'; fi
+ if nft list table inet "$NFT" >/dev/null 2>&1; then echo 'policy_nft_table=exists'; else echo 'policy_nft_table=absent'; fi
+ if nft list table inet "$TEST_NFT" >/dev/null 2>&1; then echo 'test_nft_table=exists'; else echo 'test_nft_table=absent'; fi
+ echo 'side_passwall_capture=not_observable'
+ echo 'side_direct_return=not_observable'
+ echo 'verified_client_connectivity=no'
+ echo 'auto_enable=safety_locked'
 }
 test_status() {
  # If the detached rollback worker has disappeared, immediately withdraw any
@@ -288,7 +299,7 @@ test_start() {
  # A synthetic test without verified side-return handling has already caused a
  # real client outage. Disable unsafe client forwarding until a companion
  # return-path implementation and end-to-end validation exist.
- echo 'single-arm SNAT return path is unverified; client route test is safety locked' >&2
+ echo 'single-arm client return path is unverified; client route test is safety locked' >&2
  return 1
  [ "$(mode)" = direct ] || { echo 'only permitted in direct mode' >&2; return 1; }
  [ ! -f "$TEST_EXP" ] || { echo 'test already running; stop first' >&2; return 1; }
@@ -379,6 +390,8 @@ status() {
   echo "forwarding_verified=$(val forwarding_verified 0)"
   echo "dns_strategy=primary-router"
   echo "ipv6_strategy=unchanged"
+  echo "deployment=primary_only"
+  echo "side_package_required=no"
   echo "test_client=$(val test_client '')"
   echo "route_validation=runtime-required"
   echo "auto_safety_lock=single_arm_return_unverified"
