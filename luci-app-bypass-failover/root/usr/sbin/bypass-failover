@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bypass Failover v0.3.0-beta10 (OpenWrt 24.10 / fw4) - IPv4 only.
+# Bypass Failover v0.3.0-beta11 (OpenWrt 24.10 / fw4) - IPv4 only.
 # Installed ONLY on the primary OpenWrt. Disabled by default.
 set -u
 CFG=/etc/config/bypass_failover
@@ -531,6 +531,11 @@ case "${1:-status}" in
   direct) probe_clear; test_clear; uci set bypass_failover.main.mode=direct; uci commit bypass_failover; clear_route; say '用户选择直连';;
   auto) echo 'single-arm return path is not validated; full-home auto routing remains safety locked' >&2; exit 1;;
   preflight) check_config || exit 1; echo 'config=ok'; check_base && echo 'base=healthy' || echo 'base=unhealthy'; health && echo 'proxy=healthy' || echo 'proxy=unhealthy'; [ "$(val forwarding_verified 0)" = 1 ] && echo 'forwarding=approved' || echo 'forwarding=blocked';;
+  clear-logs)
+    # Only truncate this application's temporary event log.
+    # Do not touch system logread or other packages' log files.
+    : > "$LOG" || exit 1
+    echo cleared;;
   logs) tail -n 100 "$LOG" 2>/dev/null || true;;
   *) echo 'usage: start|stop|restart|status|check|direct|auto|logs' >&2; exit 2;;
 esac
