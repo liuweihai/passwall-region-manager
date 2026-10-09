@@ -21,9 +21,14 @@ grep -F 'side_package_required=no' "$CORE" >/dev/null
 grep -F 'policy_priority_10201=' "$CORE" >/dev/null
 grep -F 'verified_client_connectivity=no' "$CORE" >/dev/null
 grep -F 'health_report()' "$CORE" >/dev/null
-grep -F 'transparent_proxy=unverified' "$CORE" >/dev/null
+grep -F 'side=offline' "$CORE" >/dev/null
+grep -F 'external=skipped' "$CORE" >/dev/null
+grep -F 'side=online' "$CORE" >/dev/null
+grep -F 'external=reachable_via_side_route' "$CORE" >/dev/null
+grep -F 'probe_transparent; then' "$CORE" >/dev/null
 grep -F 'client_return_path=unverified' "$CORE" >/dev/null
-grep -F 'automatic_switch=blocked' "$CORE" >/dev/null
+grep -F 'decision=direct' "$CORE" >/dev/null
+grep -F 'decision=side_candidate' "$CORE" >/dev/null
 grep -F 'health-report) health_report' "$CORE" >/dev/null
 grep -F 'health-report' root/usr/libexec/bypass-failover-web >/dev/null
 grep -F 'disabled' "$UI" >/dev/null
@@ -31,4 +36,4 @@ if grep -q 'bypass-failover-side_' "$BUILD"; then
  echo 'FAIL: main packaging must not create a side-router IPK' >&2
  exit 1
 fi
-echo 'primary-only beta7 static safety checks passed'
+echo 'primary-only beta8 static safety checks passed'
