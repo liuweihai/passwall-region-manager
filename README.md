@@ -1,52 +1,38 @@
 # PassWall Region Manager
 
-> **v0.1.0 — 预览/测试版；尚未实现无人值守故障切换。**
+**版本：v0.1.0（预览版）**
 
-用于 OpenWrt/PassWall 的多国家节点筛选与独立出口校验。按名称识别美国、日本、香港、新加坡、台湾、韩国节点，使用临时 Xray 探测 HTTPS 连通性和出口地区。
+OpenWrt / PassWall 多地区节点管理器：按名称扫描 US、JP、HK、SG、TW、KR 节点，使用独立临时 Xray 实例检测 HTTPS 和实际出口国家，缓存合格节点，并提供分流预览。
 
-## 当前能力
+> ⚠️ **当前未实现无人值守故障切换、定时监控和自动按网站分流。** 不要在生产网络执行 `apply`；先使用只读命令验证。在路由器上测试时，不需要改动现有小米 DHCP、PassWall 主节点或 DNS。
 
-- `scan`：只读扫描已配置的节点。
-- `verify US`：验证某个地区（US/JP/HK/SG/TW/KR）；`verify` 验证全部地区。
-- `status`：查看验证结果；`plan`：预览 AIGC/Streaming/Proxy 映射。
-- 最多四任务并发、单次连接超时、验证通过结果缓存。
+## 安装依赖
 
-## 安全边界
+OpenWrt 25.12+：`apk add jq curl`，同时需要已经安装 Xray、PassWall 和 UCI。
 
-- 默认**不会**修改已运行的主节点、DNS、DHCP 或防火墙，也不会安装定时任务。
-- 包含实验性的 `apply` 命令，但当前版本 **禁止用于生产网络**；请勿运行。
-- **尚未实现**节点故障后自动切换，也尚未保证按网站分流上线。
-- 节点名称标签不代表真实所在国家；地区服务不可用则不能当成通过验证。
-- **绝对不要**上传 `/etc/config/passwall`、订阅地址、节点 UUID/REALITY 密钥、测试产生的临时 JSON 或 `verified.tsv` 到公开仓库。
+安装主脚本到 `/usr/bin/passwall-region-manager`，赋予执行权限；如需修改默认映射，将 `regions.conf.example` 复制为路由器本地的 `/etc/passwall-region-manager/regions.conf`。
 
-## 在路由器上部署
-
-通过 Mac 传输（当前 R2S 的 Dropbear 需要 `scp -O`）：
+## 命令
 
 ```sh
-scp -O passwall-region-manager regions.conf.example root@192.168.31.2:/tmp/
+passwall-region-manager scan
+passwall-region-manager verify US
+passwall-region-manager status
+passwall-region-manager plan
 ```
 
-在 OpenWrt SSH：
+`verify` 不带地区时会扫描所有支持的地区；已验证结果缓存约 30 分钟。检测可能影响 R2S 性能，建议先按国家测试。
 
-```sh
-apk add jq
-install -m 700 /tmp/passwall-region-manager /usr/bin/passwall-region-manager
-mkdir -p /etc/passwall-region-manager
-cp /tmp/regions.conf.example /etc/passwall-region-manager/regions.conf
-sh -n /usr/bin/passwall-region-manager
-/usr/bin/passwall-region-manager scan
-/usr/bin/passwall-region-manager verify US
-/usr/bin/passwall-region-manager status
-/usr/bin/passwall-region-manager plan
-```
+## 安全与隐私
 
-如果已有 `/etc/passwall-region-manager/regions.conf`，**不要覆盖**，仅参照示例调整。
+本仓库是 **Public**。仅包含通用脚本和示例文件。绝不要提交订阅 URL、UUID、REALITY 公私钥、`/etc/config/passwall`、实际节点配置、设备备份、`verified.tsv` 或临时探测 JSON。
 
-## 版本计划
+**国家名称只是候选归类**，只有实际 IP 地区验证成功才可以视为合格；IP 地理位置数据库自身也可能不准确。
 
-- v0.1.x：完善扫描、缓存、快速验证和地区校验。
-- v0.2.x：安全故障切换、失败回滚及定时监控。
-- v0.3.x：各地区节点池与网站分流接入。
+## 后续规划
 
-当前为公开仓库：严禁提交真实路由器配置、订阅凭据和节点密钥。
+- v0.1.x：探测兼容性、并发稳定性和错误分类
+- v0.2.x：健康检查、锁机制、安全切换及回滚
+- v0.3.x：多地区节点池接入网站分流
+
+本版本代码尚未在全部 OpenWrt 设备上完成实机测试，不保证协议的完整兼容性。
