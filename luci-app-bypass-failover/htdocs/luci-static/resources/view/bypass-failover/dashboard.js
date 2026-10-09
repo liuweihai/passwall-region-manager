@@ -68,9 +68,12 @@ function renderSummary(data) {
   ]),
   E('div',{'class':'cbi-section'},[
    E('h4',{},T('第二步：检查网络','Step 2: Check connection')),
-   E('p',{},T('只检查连接，不更改任何路由规则。','Read-only check; no routing changes.')),
-   E('button',{'class':'btn cbi-button','disabled':!configured,'click':function(){
-    run('check').then(function(v){
+   E('p',{},T('点击后自动保存地址并检测连接，不会更改流量转发规则。','Saves the IP and tests connectivity without modifying traffic routing.')),
+   E('button',{'class':'btn cbi-button','click':function(){
+    var entered=addrInput.value.trim();
+    if (!entered) { message(T('请先填写旁路由地址。','Enter the bypass router IP first.'),true); return; }
+    var save=entered===address ? Promise.resolve() : run('set-bypass',[entered]);
+    save.then(function(){ return run('check'); }).then(function(v){
      message(v.trim()==='healthy'?
       T('旁路由连接正常。代理出口和故障回退尚需进一步验证。','Bypass router reachable. Proxy and failover not yet verified.'):
       T('未能连接旁路由，请检查地址或旁路由状态。','Bypass router unreachable.'));
