@@ -60,7 +60,7 @@ function renderSummary(data) {
     T('当前没有运行临时引流测试。','No temporary route test is active.'))
  );
  var configured=!!address;
- var validated=s.forwarding_verified==='1' && s.proxy_check==='configured' && !s.auto_safety_lock;
+ var validated=s.forwarding_verified==='1' && !s.auto_safety_lock;
  guide.replaceChildren(
   E('h3',{},T('只需三步','Just three steps')),
   E('div',{'class':'cbi-section'},[
@@ -75,35 +75,26 @@ function renderSummary(data) {
   ]),
   E('div',{'class':'cbi-section'},[
    E('h4',{},T('第二步：检查网络','Step 2: Check connection')),
-   E('p',{},T('自动检查旁路由基础连接，再探测主路由到旁路由的标记 TCP 路径；不会要求主路由直连 Cloudflare 成功。路径可达不代表代理及回程成功。','Checks bypass connectivity and marked TCP path without a direct Cloudflare baseline. Reachability does not verify proxy or return path.')),
+   E('p',{},T('两步检测：旁路由是否在线；在线后测试经过旁路由的 HTTPS 外网路径。不检查代理工具或节点。','Two stages: side router online, then routed HTTPS. No proxy-specific checks.')),
    E('button',{'class':'btn cbi-button','click':function(){
     var entered=addrInput.value.trim();
-    if (!entered) { message(T('请先填写旁路由地址。','Enter the bypass router IP first.'),true); return; }
-    var save=entered===address ? Promise.resolve() : run('set-bypass',[entered]);
-    save.then(function(){ return run('check'); }).then(function(v){
-     if (v.trim()!=='healthy') {
-      message(T('旁路由不可达，请检查地址和设备状态。','Bypass router unreachable.'),true);
-      return null;
-     }
-     message(T('基础连接通过，正在检测旁路由标记路径。','Base check passed. Probing marked bypass path.'));
-     return run('check-proxy');
-    }).then(function(v){
-     if (v===null) return;
-     var result=v.trim();
-     message(result==='proxy_healthy'?
-       T('指定代理入口验证成功，但客户端回程仍需验证。','Configured proxy endpoint is reachable; client return path remains unverified.'):
-       result==='path_reachable_unverified'?
-       T('旁路由标记 TCP 路径可达。尚未证明 PassWall 代理出口或客户端回程，自动保护继续锁定。','Marked TCP bypass path reachable; proxy exit and client return path unverified. Protection remains locked.'):
-       result==='path_unreachable'?
-       T('旁路由基础连接正常，但标记 TCP 路径未通过。保持主路由直连。','Bypass responds, but marked TCP path failed. Direct routing preserved.'):
-       T('检测未通过：'+result+'。网络配置未修改。','Check failed: '+result+'. Network unchanged.'),result!=='proxy_healthy'&&result!=='path_reachable_unverified');
+    if (!entered) {message(T('请先填写旁路由地址。','Enter bypass IP first.'),true);return;}
+    var save=entered===address?Promise.resolve():run('set-bypass',[entered]);
+    save.then(function(){return run('health-report');}).then(function(raw){
+     var v=parse(raw);
+     var msg=v.side==='offline'?
+       T('旁路由不在线：保持主路由直连，未执行外网检测。','Side offline: remain direct; external probe skipped.'):
+       v.external==='reachable_via_side_route'?
+       T('旁路由在线，经过旁路由路由的 HTTPS 测试成功。仍需验收普通设备回程，暂不启用自动引流。','Side online, routed HTTPS reachable. Client return path remains unverified.'):
+       T('旁路由在线，但外网路径失败或未确认，保持主路由直连。','Side online, routed HTTPS failed or unverified; remain direct.');
+     message(msg,v.external!=='reachable_via_side_route');
     }).catch(showError);
-   }},T('一键检查','Check now'))
+   }},T('检查旁路由与外网','Check side and Internet'))
   ]),
   E('div',{'class':'cbi-section'},[
    E('h4',{},T('第三步：开启自动保护','Step 3: Turn on protection')),
    E('p',{},s.auto_safety_lock?
-     T('安全锁定：已确认当前单臂旁路由 SNAT 回程方案可能导致客户端断网。必须完成真实回程验收后才能开启。','Safety locked: the single-arm SNAT return path can disconnect clients. Activation requires end-to-end validation.'):validated?
+     T('安全锁定：之前单臂旁路由引流曾导致客户端断网，需先通过客户端回程验收。','Safety locked until the previously failing client return path is validated.'):validated?
      T('已配置检测入口并记录转发验证标志；开启前仍应确认真实回程测试。','Configuration flag present; confirm real-world return-path testing.'):
      T('仍需完成真实引流与回退测试。为保护家庭网络，暂不允许开启。','Real routing and fallback tests are still required. Activation remains locked for safety.')),
    E('button',{'class':'btn cbi-button-positive','disabled':!validated,'click':function(){
@@ -156,11 +147,6 @@ return view.extend({
   advanced=E('details',{'class':'cbi-section'},[
    E('summary',{'style':'cursor:pointer;font-weight:bold;padding:12px 0'},T('高级设置（了解网络的用户）','Advanced settings (experienced users)')),
    E('p',{},T('以下为维护工具。单设备透明 TCP 测试不再要求 SOCKS5；但真实代理、回程与回退仍需人工核验。','Maintenance tools. Transparent TCP test no longer requires SOCKS5; forwarding and rollback still need real-world verification.')),
-   E('h4',{},T('真实代理检测','Real proxy check')),
-   proxyInput,' ',
-   E('button',{'class':'btn cbi-button','click':function(){run('set-proxy',[proxyInput.value.trim()]).then(reload).catch(showError);}},T('保存检测入口','Save test endpoint')),
-   ' ',
-   E('button',{'class':'btn cbi-button','click':function(){run('check-proxy').then(function(v){message(v.trim()==='proxy_healthy'?T('代理检测通过','Proxy check passed'):T('代理出口不可用或未配置','Proxy unavailable or not configured'));}).catch(showError);}},T('检测代理','Check proxy')),
    E('h4',{},T('指定设备临时测试','Temporary single-client test')),
    E('p',{},T('由于当前单臂回程尚未修复，真实引流按钮暂时锁定；先使用下方无断网风险的拓扑检查。','Live client routing is locked until the single-arm return path is fixed. Use the non-disruptive audit below.')),
    testInput,' ',
