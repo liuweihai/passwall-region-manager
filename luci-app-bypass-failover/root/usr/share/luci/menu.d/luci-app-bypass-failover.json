@@ -1,0 +1,15 @@
+{
+  "admin/services/bypass-failover": {
+    "title": "旁路由智能容灾",
+    "order": 86,
+    "action": {
+      "type": "view",
+      "path": "bypass-failover/dashboard"
+    },
+    "depends": {
+      "acl": [
+        "luci-app-bypass-failover"
+      ]
+    }
+  }
+}
