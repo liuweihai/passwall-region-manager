@@ -148,7 +148,7 @@ return view.extend({
    E('summary',{'style':'cursor:pointer;font-weight:bold;padding:12px 0'},T('高级设置（了解网络的用户）','Advanced settings (experienced users)')),
    E('p',{},T('以下为维护工具。单设备透明 TCP 测试不再要求 SOCKS5；但真实代理、回程与回退仍需人工核验。','Maintenance tools. Transparent TCP test no longer requires SOCKS5; forwarding and rollback still need real-world verification.')),
    E('h4',{},T('指定设备临时测试','Temporary single-client test')),
-   E('p',{},T('由于当前单臂回程尚未修复，真实引流按钮暂时锁定；先使用下方无断网风险的拓扑检查。','Live client routing is locked until the single-arm return path is fixed. Use the non-disruptive audit below.')),
+   E('p',{},T('60 秒测试目前锁定：此前相同 LAN 的单臂旁路由引流导致客户端断网。当前外网探测仅验证主路由请求，无法证明客户端回程；完成安全回程方案后才会开放。','60-second test is locked: the prior same-LAN route disconnected a client. The router-originated probe does not validate client return traffic.')),
    testInput,' ',
    E('button',{'class':'btn cbi-button','click':function(){run('set-client',[testInput.value.trim()]).then(reload).catch(showError);}},T('保存测试设备','Save test client')),
    ' ',
@@ -202,7 +202,19 @@ return view.extend({
    }},T('一键拓扑检查（不改变网络）','Safe topology audit')),
    ' ',
    E('button',{'class':'btn cbi-button','click':function(){run('preflight').then(function(v){message(v);}).catch(showError);}},T('查看诊断详情','Show diagnostics')),
-   E('h4',{},T('运行日志','Event log')),events
+   E('h4',{},T('运行日志','Event log')),
+   E('button',{'class':'btn cbi-button-negative','click':function(){
+    ui.showModal(T('清空运行日志','Clear event log'),[
+     E('p',{},T('仅清空本插件运行日志，不会清除系统日志或修改路由配置。','Only this plugin event log will be cleared; system logs and routing are unchanged.')),
+     E('button',{'class':'btn','click':ui.hideModal},T('取消','Cancel')),' ',
+     E('button',{'class':'btn cbi-button-negative','click':function(){
+      ui.hideModal();
+      run('clear-logs').then(function(){events.textContent=T('暂无事件','No events');return reload();})
+       .then(function(){message(T('运行日志已清空','Event log cleared'));}).catch(showError);
+     }},T('确认清空','Confirm clear'))
+    ]);
+   }},T('清空运行日志','Clear event log')),
+   events
   ]);
   renderSummary(data[0]);
   renderBoot(data[2]);
