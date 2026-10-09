@@ -5,7 +5,7 @@
 'require ui';
 
 var CMD='/usr/libexec/bypass-failover-web';
-var header, guide, advanced, events, addrInput, testInput, proxyInput;
+var header, guide, advanced, events, addrInput, testInput, proxyInput, lastStatus;
 function isZh() {
  var lang=String(L.env.lang || '').toLowerCase().replace('_','-');
  if (lang.indexOf('zh')===0) return true;
@@ -104,7 +104,7 @@ function renderSummary(data) {
 }
 function reload() {
  return Promise.all([run('status'),run('logs')]).then(function(a){
-  renderSummary(a[0]);
+  if (a[0] !== lastStatus) { renderSummary(a[0]); lastStatus=a[0]; }
   events.textContent=a[1]||T('暂无事件','No events');
   return a[0];
  }).catch(showError);
@@ -145,6 +145,7 @@ return view.extend({
    E('h4',{},T('运行日志','Event log')),events
   ]);
   renderSummary(data[0]);
+  lastStatus=data[0];
   poll.add(reload,5);
   return E('div',{},[
    E('h2',{},T('智能网络保护','Smart network protection')),
