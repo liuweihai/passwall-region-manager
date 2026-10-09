@@ -6,8 +6,19 @@
 
 var CMD = '/usr/libexec/bypass-failover-web', statusBox, logBox;
 function zh() {
- var language = String(L.env.lang || document.documentElement.lang || '').toLowerCase();
- return language.indexOf('zh') === 0;
+ // LuCI may report "auto" while its translated menus are already Chinese.
+ var langs = [L.env.lang, document.documentElement.lang];
+ for (var i = 0; i < langs.length; i++) {
+  var language = String(langs[i] || '').toLowerCase().replace('_', '-');
+  if (language.indexOf('zh') === 0) return true;
+  if (language.indexOf('en') === 0) return false;
+ }
+ // Use the actual active LuCI translations instead of browser locale alone.
+ var translated = [_('Save & Apply'), _('Status'), _('System')].join(' ');
+ if (/[\u3400-\u9fff]/.test(translated)) return true;
+ var menus = document.querySelector('header, nav, .mainmenu');
+ if (menus && /状态|系统|服务|网络/.test(menus.textContent || '')) return true;
+ return String(navigator.language || '').toLowerCase().indexOf('zh') === 0;
 }
 function t(cn, en) { return zh() ? cn : en; }
 function call(arg) {
