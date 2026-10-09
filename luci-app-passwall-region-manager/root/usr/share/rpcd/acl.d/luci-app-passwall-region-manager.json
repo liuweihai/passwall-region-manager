@@ -1,0 +1,19 @@
+{
+  "luci-app-passwall-region-manager": {
+    "description": "PassWall region scan and verification",
+    "read": {
+      "ubus": {
+        "file": [
+          "exec"
+        ]
+      }
+    },
+    "write": {
+      "file": {
+        "exec": [
+          "/usr/libexec/prm-web"
+        ]
+      }
+    }
+  }
+}
