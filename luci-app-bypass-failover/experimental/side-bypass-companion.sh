@@ -19,6 +19,7 @@ check() {
  [ "$SIDE" != "$PRIMARY" ] && [ "$SIDE" != "$CLIENT" ] && [ "$PRIMARY" != "$CLIENT" ] || return 1
  ip -4 addr show dev "$LAN" | grep -Fq "$SIDE/" || { echo 'side IP is not assigned to LAN' >&2; return 1; }
  ip -4 route show default | grep -Fq "via $PRIMARY dev $LAN" || { echo 'side default route must be via primary on LAN' >&2; return 1; }
+ [ "$(get role side)" = side ] || { echo 'wrong router role' >&2; return 1; }
  [ "$(cat /proc/sys/net/ipv4/ip_forward)" = 1 ] || { echo 'IPv4 forwarding disabled' >&2; return 1; }
  nft list table inet passwall >/dev/null 2>&1 || { echo 'PassWall nft table absent' >&2; return 1; }
  # Explicitly refuse if the client is currently connected through a bridge
@@ -54,7 +55,10 @@ table inet $TABLE {
  }
 }
 EOF
- nft list table inet "$TABLE" >/dev/null 2>&1 || return 1
+ if ! nft list table inet "$TABLE" >/dev/null 2>&1; then
+  echo 'side NAT could not be verified after application' >&2
+  return 1
+ fi
  # Short, detached safety lease. No permanent NAT rule without separately
  # implemented mutual heartbeat. Applying again does not extend the lease.
  token="$(date +%s)-$"
