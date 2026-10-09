@@ -13,6 +13,15 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+      - name: Syntax and LuCI JavaScript validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh -n luci-app-bypass-failover/root/usr/sbin/bypass-failover
+          sh -n luci-app-bypass-failover/root/usr/libexec/bypass-failover-web
+          sh -n luci-app-bypass-failover/root/etc/init.d/bypass-failover
+          node -e 'const fs=require("fs");const p="luci-app-bypass-failover/htdocs/luci-static/resources/view/bypass-failover/dashboard.js";new Function(fs.readFileSync(p,"utf8"));console.log("LuCI JavaScript syntax OK")'
+          python3 -m json.tool luci-app-bypass-failover/root/usr/share/rpcd/acl.d/luci-app-bypass-failover.json > /dev/null
       - name: Validate and build package
         shell: bash
         run: |
