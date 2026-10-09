@@ -14,6 +14,7 @@ TEST_MARK=0x4247
 TEST_NFT=bypass_failover_test
 TEST_EXP=/tmp/bypass-failover-test.expires
 TEST_PID=/tmp/bypass-failover-test-watchdog.pid
+FULL_OWNED=/tmp/bypass-failover-route.owned
 PROBE_TABLE=203
 PROBE_MARK=0x4248
 PROBE_NFT=bypass_failover_probe
@@ -114,9 +115,14 @@ check_base() {
     nslookup www.baidu.com "$BYPASS" >/dev/null 2>&1
 }
 clear_route() {
-  nft delete table inet "$NFT" 2>/dev/null || true
-  while ip -4 rule del priority 10201 2>/dev/null; do :; done
-  ip -4 route flush table "$TABLE" 2>/dev/null || true
+  if [ -f "$FULL_OWNED" ] || nft list table inet "$NFT" >/dev/null 2>&1; then
+    nft delete table inet "$NFT" 2>/dev/null || true
+    while ip -4 rule show | grep -Eq '^10201:.*fwmark 0x4246 .*lookup 201'; do
+      ip -4 rule del priority 10201 fwmark "$MARK" table "$TABLE" 2>/dev/null || break
+    done
+    ip -4 route flush table "$TABLE" 2>/dev/null || true
+    rm -f "$FULL_OWNED"
+  fi
   echo direct > "$STATE"
 }
 use_bypass() {
@@ -133,7 +139,12 @@ use_bypass() {
     *) say '无法确认旁路由 MAC，保持主路由直连'; return 1 ;;
   esac
   clear_route
-  ip -4 route replace default via "$BYPASS" dev "$LAN" table "$TABLE" || return 1
+  # Never overwrite tables/rules reserved by a different service.
+  [ -z "$(ip -4 route show table "$TABLE" 2>/dev/null)" ] || return 1
+  ip -4 rule show | grep -q '^10201:' && return 1
+  nft list table inet "$NFT" >/dev/null 2>&1 && return 1
+  : > "$FULL_OWNED"
+  ip -4 route replace default via "$BYPASS" dev "$LAN" table "$TABLE" || { clear_route; return 1; }
   nft -f - <<EOF
 table inet $NFT {
  chain mark_in {
@@ -151,11 +162,16 @@ EOF
   echo bypass > "$STATE"
 }
 test_clear() {
- # Always clean up by owned rule priority/table, even if the timer file was lost.
- nft delete table inet "$TEST_NFT" 2>/dev/null || true
- while ip -4 rule del priority 10200 2>/dev/null; do :; done
- ip -4 route flush table "$TEST_TABLE" 2>/dev/null || true
- rm -f "$TEST_EXP"
+ # Remove only our marker/chain and our specifically marked policy rule.
+ if [ -f "$TEST_EXP" ] || nft list table inet "$TEST_NFT" >/dev/null 2>&1 ||
+    ip -4 rule show | grep -Eq '^10200:.*fwmark 0x4247 .*lookup 202'; then
+   nft delete table inet "$TEST_NFT" 2>/dev/null || true
+   while ip -4 rule show | grep -Eq '^10200:.*fwmark 0x4247 .*lookup 202'; do
+     ip -4 rule del priority 10200 fwmark "$TEST_MARK" table "$TEST_TABLE" 2>/dev/null || break
+   done
+   ip -4 route flush table "$TEST_TABLE" 2>/dev/null || true
+   rm -f "$TEST_EXP"
+ fi
 }
 test_status() {
  # If the detached rollback worker has disappeared, immediately withdraw any
