@@ -528,7 +528,7 @@ EOF
  ( "$0" test-watchdog "$deadline" </dev/null >/dev/null 2>&1 & )
  sleep 1
  if ! [ -f "$TEST_PID" ] || ! kill -0 "$(cat "$TEST_PID")" 2>/dev/null; then
-  test_clear; echo 'watchdog unavailable; test aborted' >&2; return 1
+  test_clear; rm -f "$TEST_PID"; echo 'watchdog unavailable; test aborted' >&2; return 1
  fi
  say "单设备真实引流测试启动：$client 的 HTTPS 1.1.1.1:443 经 $BYPASS，未做 SNAT；60 秒到期或故障后撤销，其余流量直连"
  echo 'test_started'
