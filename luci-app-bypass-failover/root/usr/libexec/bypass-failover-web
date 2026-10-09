@@ -10,7 +10,7 @@ case "${1:-status}" in
  boot-disable)
   /etc/init.d/bypass-failover disable
   echo disabled ;;
- status|check|check-proxy|preflight|topology-audit|logs|test-start|test-stop) exec "$BIN" "$1" ;;
+ status|check|check-proxy|health-report|preflight|topology-audit|logs|test-start|test-stop) exec "$BIN" "$1" ;;
  auto|direct) exec "$BIN" "$1" ;;
  set-bypass)
   current_mode=$(uci -q get bypass_failover.main.mode || echo direct)
