@@ -138,7 +138,7 @@ test_start() {
  nft list table inet "$TEST_NFT" >/dev/null 2>&1 && { echo 'test nft table already exists' >&2; return 1; }
  # Install independent, TEST ONLY rules; never touch production table 201.
  # Marking excludes frames emitted by the bypass MAC to prevent feedback loops.
- ip -4 route replace default via "$BYPASS" dev "$LAN" table "$TEST_TABLE" || return 1
+ ip -4 route replace default via "$BYPASS" dev "$LAN" table "$TEST_TABLE" || { test_clear; return 1; }
  if ! nft -f - <<EOF
 table inet $TEST_NFT {
  chain mark_test {
@@ -149,8 +149,6 @@ table inet $TEST_NFT {
 EOF
  then test_clear; return 1; fi
  if ! ip -4 rule add priority 10200 fwmark "$TEST_MARK" table "$TEST_TABLE"; then test_clear; return 1; fi
- deadline=$(($(date +%s)+60))
- echo "$deadline" > "$TEST_EXP"
  ( "$0" test-watchdog "$deadline" </dev/null >/dev/null 2>&1 & )
  sleep 1
  if ! [ -f "$TEST_PID" ] || ! kill -0 "$(cat "$TEST_PID")" 2>/dev/null; then
