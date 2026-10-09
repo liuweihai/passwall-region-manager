@@ -1,11 +1,15 @@
 {
   "luci-app-bypass-failover": {
     "description": "Manage bypass failover service",
-    "read": {},
+    "read": {
+      "uci": [
+        "bypass_failover"
+      ]
+    },
     "write": {
       "file": {
-        "exec": [
-          "/usr/libexec/bypass-failover-web"
+        "/usr/libexec/bypass-failover-web": [
+          "exec"
         ]
       }
     }
