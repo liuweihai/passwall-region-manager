@@ -102,6 +102,17 @@ test_clear() {
  rm -f "$TEST_EXP"
 }
 test_status() {
+ # If the detached rollback worker has disappeared, immediately withdraw any
+ # temporary forwarding instead of waiting for the nominal deadline.
+ if nft list table inet "$TEST_NFT" >/dev/null 2>&1; then
+  if [ ! -f "$TEST_EXP" ] || [ ! -f "$TEST_PID" ] ||
+     ! kill -0 "$(cat "$TEST_PID" 2>/dev/null)" 2>/dev/null; then
+   test_clear
+   say '临时测试看门狗异常，已尝试撤销引流规则'
+   echo "test=rolled_back"
+   return
+  fi
+ fi
  if [ -f "$TEST_EXP" ]; then
   until=$(cat "$TEST_EXP" 2>/dev/null || echo 0)
   case "$until" in *[!0-9]*|'') until=0;; esac
@@ -212,6 +223,16 @@ daemon() {
   done
 }
 start() {
+  # Recover interrupted temporary tests before starting any monitor daemon.
+  # This only removes rules owned by this plugin, not third-party tables.
+  if [ -f "$TEST_EXP" ]; then
+    expires=$(cat "$TEST_EXP" 2>/dev/null || echo 0)
+    case "$expires" in ''|*[!0-9]*) expires=0;; esac
+    if [ "$(date +%s)" -ge "$expires" ]; then
+      test_clear
+      say '启动时清理过期临时引流规则'
+    fi
+  fi
   [ -f "$PID" ] && kill -0 "$(cat "$PID")" 2>/dev/null && { echo already-running; return 0; }
   check_config || { echo 'config invalid; no changes made' >&2; return 1; }
   ( "$0" daemon </dev/null >/dev/null 2>&1 & )
