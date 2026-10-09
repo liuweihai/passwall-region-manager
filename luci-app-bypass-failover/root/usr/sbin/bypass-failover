@@ -87,6 +87,7 @@ EOF
   echo bypass > "$STATE"
 }
 test_clear() {
+ [ -f "$TEST_EXP" ] || nft list table inet "$TEST_NFT" >/dev/null 2>&1 || return 0
  nft delete table inet "$TEST_NFT" 2>/dev/null || true
  while ip -4 rule del priority 10200 2>/dev/null; do :; done
  ip -4 route flush table "$TEST_TABLE" 2>/dev/null || true
@@ -131,6 +132,10 @@ test_start() {
   ??:??:??:??:??:??) ;;
   *) echo 'cannot determine bypass MAC (anti-loop prerequisite)' >&2; return 1;;
  esac
+ # Refuse to clobber an existing policy table or rule managed by another app.
+ [ -z "$(ip -4 route show table "$TEST_TABLE" 2>/dev/null)" ] || { echo 'test routing table is already occupied' >&2; return 1; }
+ ip -4 rule show | grep -q '^10200:' && { echo 'test rule priority is occupied' >&2; return 1; }
+ nft list table inet "$TEST_NFT" >/dev/null 2>&1 && { echo 'test nft table already exists' >&2; return 1; }
  # Install independent, TEST ONLY rules; never touch production table 201.
  # Marking excludes frames emitted by the bypass MAC to prevent feedback loops.
  ip -4 route replace default via "$BYPASS" dev "$LAN" table "$TEST_TABLE" || return 1
