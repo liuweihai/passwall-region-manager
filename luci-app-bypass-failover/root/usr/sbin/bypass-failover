@@ -68,13 +68,21 @@ use_bypass() {
   # Fail closed to direct: build policy table before mark rule. Exclude router itself,
   # LAN/subnet destinations and all traffic originating at BYPASS.
   [ "$(val forwarding_verified 0)" = 1 ] || { say '未确认同网段回程验证，拒绝开启引流'; return 1; }
+  # A single-arm bypass can emit return frames with an Internet source IP.
+  # Exclude its layer-2 MAC, not just its IPv4 address, to avoid recirculation.
+  ping -c 1 -W 2 "$BYPASS" >/dev/null 2>&1 || return 1
+  bypass_mac=$(ip neigh show "$BYPASS" dev "$LAN" | awk '/lladdr/{print $5; exit}')
+  case "$bypass_mac" in
+    ??:??:??:??:??:??) ;;
+    *) say '无法确认旁路由 MAC，保持主路由直连'; return 1 ;;
+  esac
   clear_route
   ip -4 route replace default via "$BYPASS" dev "$LAN" table "$TABLE" || return 1
   nft -f - <<EOF
 table inet $NFT {
  chain mark_in {
   type filter hook prerouting priority mangle; policy accept;
-  iifname "$LAN" ip saddr != $BYPASS ip saddr != $PRIMARY ip daddr != 192.168.0.0/16 ip daddr != 10.0.0.0/8 ip daddr != 172.16.0.0/12 ip daddr != 127.0.0.0/8 ip daddr != 224.0.0.0/4 meta mark set $MARK
+  iifname "$LAN" ether saddr != $bypass_mac ip saddr != $BYPASS ip saddr != $PRIMARY ip daddr != 192.168.0.0/16 ip daddr != 10.0.0.0/8 ip daddr != 172.16.0.0/12 ip daddr != 127.0.0.0/8 ip daddr != 224.0.0.0/4 meta mark set $MARK
  }
  chain snat_out {
   type nat hook postrouting priority srcnat - 1; policy accept;
