@@ -1,5 +1,5 @@
 #!/bin/sh
-# PassWall multi-region shunt manager v2.1 fast; OpenWrt ash; jq, curl, Xray required.
+# PassWall Region Manager v0.1.0 preview; OpenWrt ash; jq, curl, Xray required.
 # safe by default: no UCI write except explicit apply, and no cron installed.
 set -u
 BASE=/etc/passwall-region-manager
@@ -195,7 +195,7 @@ case "${1:-help}" in
   plan) plan ;;
   apply) lock; apply "$@" ;;
   help|*) cat <<'END'
-PassWall 多地区管理器 v2.1 — 默认只读；不自动创建计划任务
+PassWall 多地区管理器 v0.1.0 — 默认只读；不自动创建计划任务
   scan                 节点名称自动识别（未做出口验证）
   verify [US|JP|HK|SG|TW|KR]   最多4路并发，仅检测指定国家；30分钟内复用缓存
   plan                 预览 AIGC/Streaming/Proxy 可用地区节点（不写 UCI）
