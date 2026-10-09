@@ -177,20 +177,20 @@ return view.extend({
     run('safe-test-stop').then(reload).catch(showError);
    }},T('停止安全测试','Stop safe test')),
       E('h4',{},T('指定设备临时测试','Temporary single-client test')),
-   E('p',{},T('60 秒测试目前锁定：此前相同 LAN 的单臂旁路由引流导致客户端断网。当前外网探测仅验证主路由请求，无法证明客户端回程；完成安全回程方案后才会开放。','60-second test is locked: the prior same-LAN route disconnected a client. The router-originated probe does not validate client return traffic.')),
+   E('p',{},T('真实流量实验：仅将指定测试设备访问 1.1.1.1:443 的 TCP 流量经旁路由转发，其余流量保持直连；使用 SNAT 处理同网段回程，60 秒自动撤销。请先关闭测试设备本地代理，勿在唯一管理设备上试验。','Experimental forwarding: only the chosen client TCP to 1.1.1.1:443 is redirected; other traffic stays direct. SNAT handles same-LAN return. A 60-second watchdog rolls back. Avoid testing on your only admin device.')),
    testInput,' ',
    E('button',{'class':'btn cbi-button','click':function(){run('set-client',[testInput.value.trim()]).then(reload).catch(showError);}},T('保存测试设备','Save test client')),
    ' ',
-   E('button',{'class':'btn cbi-button','disabled':true,'click':function(){
+   E('button',{'class':'btn cbi-button','click':function(){
     ui.showModal(T('确认临时测试','Confirm temporary test'),[
-     E('p',{},T('仅对指定设备做透明 TCP 临时引流。可能断网；主路由看门狗最长约 60 秒撤销规则。测试启动不代表代理出口验证通过。','Temporary transparent TCP route for one device only. Connectivity may break; rollback depends on the primary-router watchdog. Test start is not proof of proxy functionality.')),
+     E('p',{},T('仅对填写的设备 IP 的 HTTPS 1.1.1.1:443 做真实引流，其他网站直连。测试设备可能遇到该目标连接中断；60 秒后由主路由后台撤销。请勿使用唯一的路由器管理设备测试。','Real forwarding is limited to the selected client and HTTPS 1.1.1.1:443. Other sites remain direct. The target may fail; the router watchdog rolls back at 60 seconds. Do not use your only admin device.')),
      E('button',{'class':'btn','click':ui.hideModal},T('取消','Cancel')),' ',
      E('button',{'class':'btn cbi-button-positive','click':function(){ui.hideModal();run('test-start').then(reload).catch(showError);}},T('开始测试','Start test'))
     ]);
-   }},T('运行 60 秒测试','Run 60-second test')),
+   }},T('运行 60 秒单目标真实引流','Run 60-second single-target live test')),
    ' ',
    E('button',{'class':'btn cbi-button-negative','click':function(){run('test-stop').then(reload).catch(showError);}},T('撤销测试','Cancel test')),
-   E('h4',{},T('浏览器端到端网络试验（仍属测试功能）','Browser end-to-end connectivity trial')),
+   E('h4',{},T('浏览器网络试验（待重新设计）','Browser trial (not yet validated)')),
    E('p',{},T('请在上方填写当前这台设备的 IP，并用这台设备的浏览器执行。系统会临时引流、请求一个 HTTPS 地址、读取入口及转发出口计数，再立即撤销测试。成功请求也不代表代理节点出口已验证。','Set the IP of this browser device above. This tries HTTPS over temporary routing, reads ingress and forwarding counters, then rolls back immediately. It does not prove proxy-node egress.')),
    E('button',{'class':'btn cbi-button','disabled':true,'click':function(){
      var target=testInput.value.trim();
