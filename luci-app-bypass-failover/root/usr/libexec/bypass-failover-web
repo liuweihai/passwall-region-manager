@@ -10,7 +10,10 @@ case "${1:-status}" in
  boot-disable)
   /etc/init.d/bypass-failover disable
   echo disabled ;;
- status|check|check-proxy|health-report|preflight|topology-audit|logs|test-start|test-stop) exec "$BIN" "$1" ;;
+ health-report)
+  # Offline/failed probe is a normal *result*, not an RPC transport failure.
+  "$BIN" health-report || true ;;
+ status|check|check-proxy|preflight|topology-audit|logs|test-start|test-stop) exec "$BIN" "$1" ;;
  auto|direct) exec "$BIN" "$1" ;;
  set-bypass)
   current_mode=$(uci -q get bypass_failover.main.mode || echo direct)
