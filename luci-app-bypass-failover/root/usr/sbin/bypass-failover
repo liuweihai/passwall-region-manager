@@ -104,7 +104,7 @@ safe_test_start() {
   echo 'Cannot install isolated rehearsal rules' >&2
   return 1
  fi
- printf 'running\\n' > "$SAFE_TEST_LAST"
+ printf 'running\n' > "$SAFE_TEST_LAST"
  ( "$0" safe-test-worker "$deadline" </dev/null >/dev/null 2>&1 & )
  say "安全回滚测试启动：60 秒倒计时，截止时间戳=$deadline；仅创建无 hook 的隔离 nft 表和不匹配真实流量的策略路由；不改变客户端网络"
  echo started
