@@ -10,6 +10,7 @@ case "${1:-}" in
   plan) "$BIN" plan ;;
   logs) tail -n 80 /tmp/passwall-region-manager.log 2>/dev/null || true ;;
   state)
+    if [ -f "$DIR/exit-code" ]; then echo finished; exit 0; fi
     if [ -f "$DIR/pid" ]; then
       pid=$(cat "$DIR/pid" 2>/dev/null || true)
       case "$pid" in *[!0-9]*|'') echo invalid;; *)
@@ -27,10 +28,17 @@ case "${1:-}" in
       echo 'CLI lock is present; wait for the task or inspect it first' >&2
       exit 2
     fi
+    rm -f "$DIR/exit-code"
+    total=$("$BIN" scan 2>/dev/null | awk -F '\t' -v c="$region" 'NF>=3 && (c=="ALL" || $1==c) {n++} END {print n+0}')
+    printf '%s\n' "$total" > "$DIR/total"
     : > "$DIR/latest.log"
     ( "$BIN" verify "$region" > "$DIR/latest.log" 2>&1; printf '%s\n' "$?" > "$DIR/exit-code" ) </dev/null >/dev/null 2>&1 &
     printf '%s\n' "$!" > "$DIR/pid"
     echo "started: $region" ;;
   latest) tail -n 100 "$DIR/latest.log" 2>/dev/null || true ;;
+  progress)
+    total=$(cat "$DIR/total" 2>/dev/null || echo 0)
+    done_count=$(grep -Ec '验证通过:|验证失败:|HTTPS 未通过:|HTTPS正常但出口国家未确认:|出口国家不匹配:|探测失败:|未检测:' "$DIR/latest.log" 2>/dev/null || echo 0)
+    printf '%s/%s\n' "$done_count" "$total" ;;
   *) echo 'usage: prm-web scan|status|plan|logs|state|start REGION|latest' >&2; exit 2;;
 esac
