@@ -136,6 +136,8 @@ test_start() {
  [ -z "$(ip -4 route show table "$TEST_TABLE" 2>/dev/null)" ] || { echo 'test routing table is already occupied' >&2; return 1; }
  ip -4 rule show | grep -q '^10200:' && { echo 'test rule priority is occupied' >&2; return 1; }
  nft list table inet "$TEST_NFT" >/dev/null 2>&1 && { echo 'test nft table already exists' >&2; return 1; }
+ deadline=$(($(date +%s)+60))
+ echo "$deadline" > "$TEST_EXP"
  # Install independent, TEST ONLY rules; never touch production table 201.
  # Marking excludes frames emitted by the bypass MAC to prevent feedback loops.
  ip -4 route replace default via "$BYPASS" dev "$LAN" table "$TEST_TABLE" || { test_clear; return 1; }
