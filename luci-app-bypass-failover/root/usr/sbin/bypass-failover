@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bypass Failover v0.3.0-beta7 (OpenWrt 24.10 / fw4) - IPv4 only.
+# Bypass Failover v0.3.0-beta8 (OpenWrt 24.10 / fw4) - IPv4 only.
 # Installed ONLY on the primary OpenWrt. Disabled by default.
 set -u
 CFG=/etc/config/bypass_failover
@@ -97,49 +97,35 @@ EOF
   say "旁路由标记路径 HTTPS 可达（出口 $bypass_ip），但未证明代理出口或客户端回程"
 )
 
-# Status is evidence-graded. ICMP/DNS success never means the transparent
-# PassWall path or the original client TCP return path has been validated.
-# No dependency on a remotely exposed SOCKS5 listener.
+# Tool-agnostic two-stage monitor. The HTTPS request is policy-routed to
+# the side router and never infers success from the primary's ordinary WAN.
+# This tests the router-originated path, NOT the client return path.
+# The actual switching gate remains locked until client path acceptance.
 health_report() {
  check_config || { echo 'config=invalid'; return 1; }
- if ping -c 1 -W 2 "$BYPASS" >/dev/null 2>&1; then
-  echo 'side_icmp=reachable'
- else
-  echo 'side_icmp=unreachable'
-  echo 'automatic_switch=blocked'
+ if ! ping -c 1 -W 2 "$BYPASS" >/dev/null 2>&1; then
+  echo 'side=offline'
+  echo 'external=skipped'
+  echo 'decision=direct'
+  echo 'client_return_path=unverified'
   return 1
  fi
- # A DNS response from .2 is independent of actual client TCP routing.
- if nslookup www.baidu.com "$BYPASS" >/dev/null 2>&1; then
-  echo 'side_dns=reachable'
- else
-  echo 'side_dns=unreachable'
+ echo 'side=online'
+ if probe_transparent; then
+  echo 'external=reachable_via_side_route'
+  echo 'decision=side_candidate'
+  echo 'client_return_path=unverified'
+  return 0
  fi
- endpoint=$(val proxy_endpoint '')
- if [ -n "$endpoint" ]; then
-  case "$endpoint" in
-   http://"$BYPASS":*|socks5h://"$BYPASS":*) ;;
-   *) echo 'proxy_endpoint=invalid'; echo 'automatic_switch=blocked'; return 1;;
-  esac
-  if curl -4 -fsS --connect-timeout 3 --max-time 7 --proxy "$endpoint" \
-   -o /dev/null https://www.gstatic.com/generate_204 >/dev/null 2>&1; then
-   echo 'proxy_endpoint=reachable'
-  else
-   echo 'proxy_endpoint=unreachable'
-  fi
- else
-  echo 'proxy_endpoint=not_configured'
- fi
- echo 'transparent_proxy=unverified'
+ echo 'external=unreachable_or_unverified'
+ echo 'decision=direct'
  echo 'client_return_path=unverified'
- echo 'automatic_switch=blocked'
  return 1
 }
-# Old daemon deliberately remains fail-closed, including with an optional
-# proxy endpoint: endpoint success is not evidence of client return routing.
+# The daemon reads the same two-stage result but must NEVER permit auto
+# routing while an actual client end-to-end test has not been accepted.
 health() {
  health_report >> "$LOG" 2>/dev/null
- return 1
 }
 check_base() {
   ping -c 1 -W 2 "$BYPASS" >/dev/null 2>&1 &&
@@ -419,7 +405,7 @@ status() {
   echo "deployment=primary_only"
   echo "side_package_required=no"
   echo "test_client=$(val test_client '')"
-  echo "route_validation=runtime-required"\n  echo "health_evidence=icmp_dns_not_sufficient"\n  echo "client_return_path=unverified"
+  echo "route_validation=runtime-required"\n  echo "health_evidence=side_icmp_then_routed_https"\n  echo "client_return_path=unverified"
   echo "auto_safety_lock=single_arm_return_unverified"
   echo "client_test_safety_lock=single_arm_return_unverified"
   echo "dhcp_router=$(uci -q get dhcp.lan.dhcp_option 2>/dev/null | tr '\n' ',' || true)"
