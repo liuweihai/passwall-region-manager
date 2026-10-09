@@ -20,6 +20,14 @@ if grep -Eq 'snat ip to \$PRIMARY|snat ip to 192\.168\.31\.1' "$CORE"; then
  exit 1
 fi
 grep -F 'chain observe_to_side' "$CORE" >/dev/null
+grep -F 'chain dns_to_side' "$CORE" >/dev/null
+grep -F 'chain dns_return' "$CORE" >/dev/null
+grep -F 'th dport 53 counter dnat ip to $BYPASS' "$CORE" >/dev/null
+grep -F 'th dport 53 counter snat ip to $PRIMARY' "$CORE" >/dev/null
+grep -F 'client_dns_redirect=' "$CORE" >/dev/null
+grep -F 'dns=unavailable' "$CORE" >/dev/null
+grep -F 'echo "$" > "$SAFE_TEST_DIR/pid"' "$CORE" >/dev/null
+if grep -F 'echo "$" > "$SAFE_TEST_DIR/pid"' "$CORE" >/dev/null; then echo 'FAIL: unsafe isolated worker PID' >&2; exit 1; fi
 grep -F 'chain test_egress' "$CORE" >/dev/null
 grep -F 'test-watchdog) test_watchdog' "$CORE" >/dev/null
 grep -F 'mode=auto' "$CORE" >/dev/null
