@@ -5,7 +5,7 @@
 'require ui';
 
 var CMD='/usr/libexec/bypass-failover-web';
-var header, guide, advanced, events, addrInput, testInput, proxyInput, lastStatus;
+var header, guide, advanced, events, addrInput, testInput, proxyInput, lastStatus, bootBox;
 function isZh() {
  var lang=String(L.env.lang || '').toLowerCase().replace('_','-');
  if (lang.indexOf('zh')===0) return true;
@@ -108,18 +108,31 @@ function renderSummary(data) {
  if (testInput && document.activeElement!==testInput) testInput.value=s.test_client||'';
  return s;
 }
+function renderBoot(status) {
+ var on=status.trim()==='enabled';
+ bootBox.replaceChildren(
+  E('h3',{},T('开机自动启动','Start automatically at boot')),
+  E('p',{},on?T('已开启：重启后启动监控服务。是否引流仍由网络保护设置决定。','Enabled: monitoring starts after reboot; routing still follows protection settings.'):
+      T('已关闭：路由器重启后不自动启动本插件。','Disabled: this service will not start automatically after reboot.')),
+  E('button',{'class':'btn cbi-button','click':function(){
+   run(on?'boot-disable':'boot-enable').then(function(v){ renderBoot(v); message(on?T('已关闭开机启动','Autostart disabled'):T('已开启开机启动','Autostart enabled')); }).catch(showError);
+  }},on?T('关闭开机启动','Disable autostart'):T('开启开机启动','Enable autostart'))
+ );
+}
 function reload() {
- return Promise.all([run('status'),run('logs')]).then(function(a){
+ return Promise.all([run('status'),run('logs'),run('boot-status')]).then(function(a){
   if (a[0] !== lastStatus) { renderSummary(a[0]); lastStatus=a[0]; }
   events.textContent=a[1]||T('暂无事件','No events');
+  renderBoot(a[2]);
   return a[0];
  }).catch(showError);
 }
 return view.extend({
- load:function(){return Promise.all([run('status'),run('logs')]);},
+ load:function(){return Promise.all([run('status'),run('logs'),run('boot-status')]);},
  render:function(data){
   var s=parse(data[0]);
   header=E('div',{'class':'cbi-section'});
+  bootBox=E('div',{'class':'cbi-section'});
   guide=E('div',{});
   addrInput=E('input',{'class':'cbi-input-text','type':'text','placeholder':'192.168.1.2','value':s.bypass||''});
   testInput=E('input',{'class':'cbi-input-text','type':'text','placeholder':'192.168.1.100','value':s.test_client||''});
@@ -151,12 +164,13 @@ return view.extend({
    E('h4',{},T('运行日志','Event log')),events
   ]);
   renderSummary(data[0]);
+  renderBoot(data[2]);
   lastStatus=data[0];
   poll.add(reload,5);
   return E('div',{},[
    E('h2',{},T('智能网络保护','Smart network protection')),
    E('p',{},T('旁路由异常时，尽可能保障网络正常访问。首次使用请从第一步开始。','Help keep the network connected if a bypass router fails. Start at step one.')),
-   header,guide,advanced,
+   header,guide,bootBox,advanced,
    E('p',{},T('开发预览：目前不能保证旁路由整机故障时自动接管；高级测试通过前请勿手动解除保护限制。','Development preview: full failover is not yet validated. Do not bypass safety restrictions.'))
   ]);
  },
