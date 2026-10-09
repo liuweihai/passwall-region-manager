@@ -75,15 +75,23 @@ function renderSummary(data) {
   ]),
   E('div',{'class':'cbi-section'},[
    E('h4',{},T('第二步：检查网络','Step 2: Check connection')),
-   E('p',{},T('点击后自动保存地址并检测连接，不会更改流量转发规则。','Saves the IP and tests connectivity without modifying traffic routing.')),
+   E('p',{},T('自动保存地址，检查基础连接和透明 TCP 代理出口，测试完成后清除临时探测规则。','Saves the IP, checks bypass connectivity and transparent TCP egress, then removes temporary probe rules.')),
    E('button',{'class':'btn cbi-button','click':function(){
     var entered=addrInput.value.trim();
     if (!entered) { message(T('请先填写旁路由地址。','Enter the bypass router IP first.'),true); return; }
     var save=entered===address ? Promise.resolve() : run('set-bypass',[entered]);
     save.then(function(){ return run('check'); }).then(function(v){
-     message(v.trim()==='healthy'?
-      T('旁路由连接正常。代理出口和故障回退尚需进一步验证。','Bypass router reachable. Proxy and failover not yet verified.'):
-      T('未能连接旁路由，请检查地址或旁路由状态。','Bypass router unreachable.'));
+     if (v.trim()!=='healthy') {
+      message(T('旁路由不可达，请检查地址和设备状态。','Bypass router unreachable.'),true);
+      return null;
+     }
+     message(T('基础连接通过，正在检查透明 TCP 出口（可能需要约 20 秒）。','Basic check passed. Testing transparent TCP egress (may take around 20 seconds).'));
+     return run('check-proxy');
+    }).then(function(v){
+     if (v===null) return;
+     message(v.trim()==='proxy_healthy'?
+       T('透明 TCP 出口检查通过。真实引流和故障切换仍需单设备验证。','Transparent TCP exit check passed. Client forwarding and failover still require testing.'):
+       T('旁路由在线，但暂时无法确认代理出口。请检查 PassWall 节点或测试目标；网络未被修改。','Bypass is reachable but proxy egress could not be confirmed. No network routing changes were kept.'),v.trim()!=='proxy_healthy');
     }).catch(showError);
    }},T('一键检查','Check now'))
   ]),
