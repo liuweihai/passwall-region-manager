@@ -14,6 +14,10 @@ TEST_MARK=0x4247
 TEST_NFT=bypass_failover_test
 TEST_EXP=/tmp/bypass-failover-test.expires
 TEST_PID=/tmp/bypass-failover-test-watchdog.pid
+PROBE_TABLE=203
+PROBE_MARK=0x4248
+PROBE_NFT=bypass_failover_probe
+PROBE_LOCK=/tmp/bypass-failover-probe.lock
 val() { uci -q get "bypass_failover.main.$1" 2>/dev/null || printf '%s' "$2"; }
 say() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG"; tail -n 400 "$LOG" > "$LOG.new"; mv "$LOG.new" "$LOG"; }
 notify() {
@@ -40,15 +44,62 @@ check_config() {
   for n in "$INTERVAL" "$FAIL" "$RECOVER" "$HOLD"; do case "$n" in ''|*[!0-9]*) return 1;; esac; done
   [ "$INTERVAL" -ge 5 ] && [ "$FAIL" -ge 2 ] && [ "$RECOVER" -ge 2 ] && [ "$HOLD" -ge 30 ] || return 1
 }
+# Probe a router-originated HTTPS request through the bypass's existing
+# transparent TCP path. Uses only one destination IPv4 and a dedicated policy
+# rule, and does not require a remotely reachable SOCKS listener.
+probe_clear() {
+  nft delete table inet "$PROBE_NFT" 2>/dev/null || true
+  while ip -4 rule del priority 10202 2>/dev/null; do :; done
+  ip -4 route flush table "$PROBE_TABLE" 2>/dev/null || true
+  rmdir "$PROBE_LOCK" 2>/dev/null || true
+}
+probe_ip() {
+  curl -4 -fsS --connect-timeout 3 --max-time 8 --interface "$LAN" \
+    --resolve one.one.one.one:443:1.1.1.1 \
+    'https://one.one.one.one/cdn-cgi/trace' 2>/dev/null |
+    sed -n 's/^ip=//p' | tr -d '\r' | head -n 1
+}
+probe_transparent() (
+  # No package installs or persistent PassWall configuration changes.
+  [ -d "$PROBE_LOCK" ] && return 1
+  [ -z "$(ip -4 route show table "$PROBE_TABLE" 2>/dev/null)" ] || return 1
+  ip -4 rule show | grep -q '^10202:' && return 1
+  nft list table inet "$PROBE_NFT" >/dev/null 2>&1 && return 1
+  mkdir "$PROBE_LOCK" 2>/dev/null || return 1
+  trap 'probe_clear' EXIT
+  trap 'exit 1' INT TERM
+  direct_ip=$(probe_ip)
+  valid_ip "$direct_ip" || return 1
+  ip -4 route replace default via "$BYPASS" dev "$LAN" table "$PROBE_TABLE" || return 1
+  nft -f - <<EOF
+table inet $PROBE_NFT {
+ chain output_mark {
+  type route hook output priority mangle; policy accept;
+  ip saddr $PRIMARY ip daddr 1.1.1.1 meta l4proto tcp tcp dport 443 meta mark 0x0 counter meta mark set $PROBE_MARK
+ }
+}
+EOF
+  nft list table inet "$PROBE_NFT" >/dev/null 2>&1 || return 1
+  ip -4 rule add priority 10202 fwmark "$PROBE_MARK" table "$PROBE_TABLE" || return 1
+  bypass_ip=$(probe_ip)
+  valid_ip "$bypass_ip" || return 1
+  packets=$(nft list chain inet "$PROBE_NFT" output_mark 2>/dev/null |
+    awk '/counter packets/{for(i=1;i<=NF;i++) if($i=="packets"){print $(i+1); exit}}')
+  case "$packets" in ''|*[!0-9]*) return 1;; esac
+  [ "$packets" -gt 0 ] && [ "$direct_ip" != "$bypass_ip" ]
+)
 health() {
   ping -c 1 -W 2 "$BYPASS" >/dev/null 2>&1 || return 1
   nslookup www.baidu.com "$BYPASS" >/dev/null 2>&1 || return 1
-  # Proxy health is mandatory in auto mode, not merely a listening port or ping.
-  # Requires an explicitly configured HTTP or SOCKS5 endpoint on the bypass.
   endpoint=$(val proxy_endpoint '')
+  if [ -z "$endpoint" ]; then
+    # Exit IP must differ from direct WAN, and nft must count packets.
+    probe_transparent || { say '透明 TCP 代理出口探测未通过，保持直连'; return 1; }
+    return 0
+  fi
   case "$endpoint" in
     http://"$BYPASS":*|socks5h://"$BYPASS":*) ;;
-    *) say '代理出口检测地址未配置或不是旁路由地址'; return 1 ;;
+    *) say '代理出口检测地址格式有误'; return 1 ;;
   esac
   curl -fsS --connect-timeout 3 --max-time 7 --proxy "$endpoint" \
     --output /dev/null 'https://www.gstatic.com/generate_204' || return 1
@@ -241,12 +292,14 @@ start() {
   # A fresh service start must discard abandoned temporary policy rules.
   test_clear
   rm -f "$TEST_PID"
-  say '服务启动前已清理临时测试规则'
+  probe_clear
+  say '服务启动前已清理临时测试和探测规则'
   check_config || { echo 'config invalid; no changes made' >&2; return 1; }
   ( "$0" daemon </dev/null >/dev/null 2>&1 & )
   echo started
 }
 stop() {
+  probe_clear
   test_clear
   if [ -f "$PID" ]; then
     k=$(cat "$PID"); kill "$k" 2>/dev/null || true
@@ -265,7 +318,7 @@ case "${1:-status}" in
   test-start) test_start;;
   test-stop) test_clear; say '单设备测试手动停止';;
   test-watchdog) test_watchdog "$2";;
-  direct) test_clear; uci set bypass_failover.main.mode=direct; uci commit bypass_failover; clear_route; say '用户选择直连';;
+  direct) probe_clear; test_clear; uci set bypass_failover.main.mode=direct; uci commit bypass_failover; clear_route; say '用户选择直连';;
   auto) [ ! -f "$TEST_EXP" ] || { echo 'stop single-device test first' >&2; exit 1; }; check_config || exit 1; [ "$(val forwarding_verified 0)" = 1 ] || { echo 'forwarding path not verified; auto mode blocked' >&2; exit 1; }; health || { echo 'real proxy health check failed; auto mode blocked' >&2; exit 1; }; uci set bypass_failover.main.mode=auto; uci commit bypass_failover; start; say '用户开启自动模式';;
   preflight) check_config || exit 1; echo 'config=ok'; check_base && echo 'base=healthy' || echo 'base=unhealthy'; health && echo 'proxy=healthy' || echo 'proxy=unhealthy'; [ "$(val forwarding_verified 0)" = 1 ] && echo 'forwarding=approved' || echo 'forwarding=blocked';;
   logs) tail -n 100 "$LOG" 2>/dev/null || true;;
