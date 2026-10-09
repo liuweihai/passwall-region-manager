@@ -75,7 +75,7 @@ function renderSummary(data) {
   ]),
   E('div',{'class':'cbi-section'},[
    E('h4',{},T('第二步：检查网络','Step 2: Check connection')),
-   E('p',{},T('自动保存地址，检查基础连接和透明 TCP 代理出口，测试完成后清除临时探测规则。','Saves the IP, checks bypass connectivity and transparent TCP egress, then removes temporary probe rules.')),
+   E('p',{},T('自动检查旁路由基础连接，再探测主路由到旁路由的标记 TCP 路径；不会要求主路由直连 Cloudflare 成功。路径可达不代表代理及回程成功。','Checks bypass connectivity and marked TCP path without a direct Cloudflare baseline. Reachability does not verify proxy or return path.')),
    E('button',{'class':'btn cbi-button','click':function(){
     var entered=addrInput.value.trim();
     if (!entered) { message(T('请先填写旁路由地址。','Enter the bypass router IP first.'),true); return; }
@@ -85,13 +85,18 @@ function renderSummary(data) {
       message(T('旁路由不可达，请检查地址和设备状态。','Bypass router unreachable.'),true);
       return null;
      }
-     message(T('基础连接通过，正在检查透明 TCP 出口（可能需要约 20 秒）。','Basic check passed. Testing transparent TCP egress (may take around 20 seconds).'));
+     message(T('基础连接通过，正在检测旁路由标记路径。','Base check passed. Probing marked bypass path.'));
      return run('check-proxy');
     }).then(function(v){
      if (v===null) return;
-     message(v.trim()==='proxy_healthy'?
-       T('透明 TCP 出口检查通过。真实引流和故障切换仍需单设备验证。','Transparent TCP exit check passed. Client forwarding and failover still require testing.'):
-       T('旁路由在线，但暂时无法确认代理出口。请检查 PassWall 节点或测试目标；网络未被修改。','Bypass is reachable but proxy egress could not be confirmed. No network routing changes were kept.'),v.trim()!=='proxy_healthy');
+     var result=v.trim();
+     message(result==='proxy_healthy'?
+       T('指定代理入口验证成功，但客户端回程仍需验证。','Configured proxy endpoint is reachable; client return path remains unverified.'):
+       result==='path_reachable_unverified'?
+       T('旁路由标记 TCP 路径可达。尚未证明 PassWall 代理出口或客户端回程，自动保护继续锁定。','Marked TCP bypass path reachable; proxy exit and client return path unverified. Protection remains locked.'):
+       result==='path_unreachable'?
+       T('旁路由基础连接正常，但标记 TCP 路径未通过。保持主路由直连。','Bypass responds, but marked TCP path failed. Direct routing preserved.'):
+       T('检测未通过：'+result+'。网络配置未修改。','Check failed: '+result+'. Network unchanged.'),result!=='proxy_healthy'&&result!=='path_reachable_unverified');
     }).catch(showError);
    }},T('一键检查','Check now'))
   ]),
