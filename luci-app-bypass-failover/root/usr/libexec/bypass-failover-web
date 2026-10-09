@@ -2,6 +2,14 @@
 set -eu
 BIN=/usr/sbin/bypass-failover
 case "${1:-status}" in
+ boot-status)
+  if /etc/init.d/bypass-failover enabled >/dev/null 2>&1; then echo enabled; else echo disabled; fi ;;
+ boot-enable)
+  /etc/init.d/bypass-failover enable
+  echo enabled ;;
+ boot-disable)
+  /etc/init.d/bypass-failover disable
+  echo disabled ;;
  status|check|check-proxy|preflight|logs|test-start|test-stop) exec "$BIN" "$1" ;;
  auto|direct) exec "$BIN" "$1" ;;
  set-bypass)
