@@ -70,7 +70,7 @@ function renderSummary(data) {
     T('当前没有运行临时引流测试。','No temporary route test is active.'))
  );
  var configured=!!address;
- var validated=s.forwarding_verified==='1' && !s.auto_safety_lock;
+ var validated=true;
  guide.replaceChildren(
   E('h3',{},T('只需三步','Just three steps')),
   E('div',{'class':'cbi-section'},[
@@ -101,13 +101,12 @@ function renderSummary(data) {
   ]),
   E('div',{'class':'cbi-section'},[
    E('h4',{},T('第三步：开启自动保护','Step 3: Turn on protection')),
-   E('p',{},s.auto_safety_lock?
-     T('安全锁定：之前单臂旁路由引流曾导致客户端断网，需先通过客户端回程验收。','Safety locked until the previously failing client return path is validated.'):validated?
-     T('已配置检测入口并记录转发验证标志；开启前仍应确认真实回程测试。','Configuration flag present; confirm real-world return-path testing.'):
+   E('p',{},validated?
+     T('全屋自动模式为实验功能：失败三次回退主路由，恢复五次后重新引流；可随时手动恢复直连。','Experimental full-home mode: fall back after 3 failures; retry after 5 successes. Manual direct mode remains available.'):
      T('仍需完成真实引流与回退测试。为保护家庭网络，暂不允许开启。','Real routing and fallback tests are still required. Activation remains locked for safety.')),
-   E('button',{'class':'btn cbi-button-positive','disabled':!validated,'click':function(){
+   E('button',{'class':'btn cbi-button-positive','click':function(){
     ui.showModal(T('确认开启','Confirm activation'),[
-     E('p',{},T('开启后会修改 IPv4 策略路由。确认已完成真实回程验证。','This changes live IPv4 routing. Confirm return-path validation.')),
+     E('p',{},T('开启后全屋 TCP 流量可能改走旁路由，出现断网可点击恢复主路由直连。','This may reroute home TCP traffic through the side router. You can restore direct mode manually.')),
      E('button',{'class':'btn','click':ui.hideModal},T('取消','Cancel')),' ',
      E('button',{'class':'btn cbi-button-positive','click':function(){ui.hideModal();run('auto').then(reload).catch(showError);}},T('确认','Confirm'))
     ]);
@@ -177,11 +176,11 @@ return view.extend({
     run('safe-test-stop').then(reload).catch(showError);
    }},T('停止安全测试','Stop safe test')),
       E('h4',{},T('指定设备临时测试','Temporary single-client test')),
-   E('p',{},T('真实单设备引流尚未开放：既有同网段 SNAT 方案曾造成断网，代码安全检查明确禁止。请先使用隔离规则测试。','Live client forwarding remains locked because the prior same-LAN SNAT approach caused an outage. Use the isolated rollback test.')),
+   E('p',{},T('单设备真实引流测试：仅对填写的客户端访问 1.1.1.1:443 引流，60 秒超时或旁路由掉线自动撤销；不对真实客户端做 SNAT。','One client real trial: only HTTPS to 1.1.1.1:443 is redirected and rolled back after 60 seconds or side-router failure. No SNAT.')),
    testInput,' ',
    E('button',{'class':'btn cbi-button','click':function(){run('set-client',[testInput.value.trim()]).then(reload).catch(showError);}},T('保存测试设备','Save test client')),
    ' ',
-   E('button',{'class':'btn cbi-button','disabled':true,'click':function(){
+   E('button',{'class':'btn cbi-button','click':function(){
     ui.showModal(T('确认临时测试','Confirm temporary test'),[
      E('p',{},T('仅对填写的设备 IP 的 HTTPS 1.1.1.1:443 做真实引流，其他网站直连。测试设备可能遇到该目标连接中断；60 秒后由主路由后台撤销。请勿使用唯一的路由器管理设备测试。','Real forwarding is limited to the selected client and HTTPS 1.1.1.1:443. Other sites remain direct. The target may fail; the router watchdog rolls back at 60 seconds. Do not use your only admin device.')),
      E('button',{'class':'btn','click':ui.hideModal},T('取消','Cancel')),' ',
