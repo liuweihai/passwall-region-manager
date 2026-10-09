@@ -49,9 +49,14 @@ apply() {
  # matches CLIENT. Do not alter existing PassWall table or its TCP listener.
  nft -f - <<EOF
 table inet $TABLE {
+ set trial_clients {
+  type ipv4_addr
+  flags timeout
+  elements = { $CLIENT timeout 60s }
+ }
  chain direct_snat {
   type nat hook postrouting priority srcnat - 5; policy accept;
-  ip saddr $CLIENT ip daddr != 10.0.0.0/8 ip daddr != 172.16.0.0/12 ip daddr != 192.168.0.0/16 ip daddr != 127.0.0.0/8 ip daddr != 169.254.0.0/16 ip daddr != 224.0.0.0/4 meta l4proto tcp oifname "$LAN" counter snat ip to $SIDE
+  ip saddr @trial_clients ip daddr != 10.0.0.0/8 ip daddr != 172.16.0.0/12 ip daddr != 192.168.0.0/16 ip daddr != 127.0.0.0/8 ip daddr != 169.254.0.0/16 ip daddr != 224.0.0.0/4 meta l4proto tcp oifname "$LAN" counter snat ip to $SIDE
  }
 }
 EOF
@@ -59,8 +64,9 @@ EOF
   echo 'side NAT could not be verified after application' >&2
   return 1
  fi
- # Short, detached safety lease. No permanent NAT rule without separately
- # implemented mutual heartbeat. Applying again does not extend the lease.
+ # Kernel-enforced nft set-element expiry stops matching after 60 seconds,
+ # even if the detached userspace cleanup process crashes.
+ # The detached worker also removes the inert table afterward.
  token="$(date +%s)-$"
  printf '%s\n' "$token" > "$LEASE"
  ( "$0" lease-expire "$token" </dev/null >/dev/null 2>&1 & )
