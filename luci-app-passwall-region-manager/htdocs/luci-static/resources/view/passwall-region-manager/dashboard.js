@@ -6,7 +6,7 @@
 
 var TOOL = '/usr/libexec/prm-web';
 var REGIONS = ['US', 'JP', 'HK', 'SG', 'TW', 'KR', 'ALL'];
-var output, stat, logs, current;
+var output, stat, logs, current, progress;
 function run(args) {
   return fs.exec(TOOL, args).then(function(r) {
     if (r.code !== 0) throw new Error(r.stderr || 'Command failed (' + r.code + ')');
@@ -16,9 +16,10 @@ function run(args) {
 function showError(e) { ui.addNotification(null, E('p', {}, String(e.message || e)), 'danger'); }
 function line(text) { return E('pre', { 'style': 'white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto' }, text); }
 function refresh() {
-  return Promise.all([run(['state']), run(['latest'])]).then(function(r) {
+  return Promise.all([run(['state']), run(['latest']), run(['progress'])]).then(function(r) {
     stat.textContent = (r[0] || '').trim();
     logs.textContent = r[1] || '暂无验证日志';
+    progress.textContent = (r[2] || '').trim();
   }).catch(showError);
 }
 function action(args) {
@@ -26,7 +27,7 @@ function action(args) {
   return run(args).then(function(s) { current.textContent = s || '没有结果'; }).catch(showError);
 }
 return view.extend({
-  load: function() { return Promise.all([run(['status']), run(['state']), run(['latest'])]); },
+  load: function() { return Promise.all([run(['status']), run(['state']), run(['latest']), run(['progress'])]); },
   render: function(data) {
     var selected = E('select', { 'class': 'cbi-input-select' }, REGIONS.map(function(c) {
       return E('option', { 'value': c }, c === 'ALL' ? '全部地区' : c);
@@ -34,6 +35,7 @@ return view.extend({
     current = line(data[0] || '暂无信息');
     stat = E('strong', {}, (data[1] || '').trim());
     logs = line(data[2] || '暂无验证日志');
+    progress = E('strong', {}, (data[3] || '').trim());
     output = E('div', {}, [
       E('h2', {}, 'PassWall 地区节点管理'),
       E('p', {}, '只读扫描、独立出口验证和运行日志；不会自动修改网关、DNS 或 PassWall 主节点。'),
@@ -60,7 +62,7 @@ return view.extend({
             ])
           ]);
         } }, '开始验证'),
-        E('p', {}, ['任务状态：', stat]),
+        E('p', {}, ['任务状态：', stat, '　进度：', progress]),
         E('p', {}, '日志每 3 秒刷新，包含验证通过、超时及实际出口国家。'),
         logs
       ])
