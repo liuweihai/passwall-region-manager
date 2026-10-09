@@ -24,8 +24,9 @@ STARTUP_WAIT=${STARTUP_WAIT:-1}
 # CC|matching alternatives (case-insensitive; full US token via emoji, keyword, US_/USA, etc)
 REGIONS=${REGIONS:-US JP HK SG TW KR}
 log() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG"; }
+SELF_PID=$(awk '{print $4}' /proc/self/stat)
 unlock() {
-  [ -f "$LOCK/pid" ] && [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$" ] || return 0
+  [ -f "$LOCK/pid" ] && [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$SELF_PID" ] || return 0
   rm -f "$LOCK/pid"; rmdir "$LOCK" 2>/dev/null || true
 }
 lock() {
@@ -43,7 +44,7 @@ lock() {
     log "已清理遗留任务锁 PID=$owner"
     mkdir "$LOCK" 2>/dev/null || return 2
   fi
-  printf '%s\n' "$" > "$LOCK/pid" || return 2
+  printf '%s\n' "$SELF_PID" > "$LOCK/pid" || return 2
   trap 'unlock' EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
