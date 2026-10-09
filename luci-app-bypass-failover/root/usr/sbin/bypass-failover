@@ -145,6 +145,13 @@ test_start() {
  client=$(val test_client '')
  valid_ip "$client" || { echo 'test client IP not configured' >&2; return 1; }
  [ "$client" != "$PRIMARY" ] && [ "$client" != "$BYPASS" ] || return 1
+ # Never test an address outside the directly connected LAN, including the
+ # primary router, side router, and addresses not present in the neighbor table.
+ client_mac=$(ip neigh show "$client" dev "$LAN" | awk '/lladdr/{print $5; exit}')
+ case "$client_mac" in
+   ??:??:??:??:??:??) ;;
+   *) echo 'test client MAC not resolved; connect the device first' >&2; return 1 ;;
+ esac
  ip -4 route get "$client" | grep -q "dev $LAN" || { echo 'test client not in LAN' >&2; return 1; }
  # Transparent TCP mode can be tested without exposing an HTTP/SOCKS listener.
  # This is a BASE connectivity prerequisite, not a proof of proxy egress.
@@ -168,7 +175,7 @@ test_start() {
 table inet $TEST_NFT {
  chain mark_test {
   type filter hook prerouting priority mangle; policy accept;
-  iifname "$LAN" ether saddr != $mac ip saddr $client ip daddr != 10.0.0.0/8 ip daddr != 172.16.0.0/12 ip daddr != 192.168.0.0/16 ip daddr != 127.0.0.0/8 ip daddr != 169.254.0.0/16 ip daddr != 224.0.0.0/4 counter meta mark set $TEST_MARK
+  iifname "$LAN" ether saddr $client_mac ether saddr != $mac ip saddr $client ip daddr != 10.0.0.0/8 ip daddr != 172.16.0.0/12 ip daddr != 192.168.0.0/16 ip daddr != 127.0.0.0/8 ip daddr != 169.254.0.0/16 ip daddr != 224.0.0.0/4 counter meta mark set $TEST_MARK
  }
  chain test_snat {
   type nat hook postrouting priority srcnat - 1; policy accept;
