@@ -285,6 +285,11 @@ test_watchdog() {
  rm -f "$TEST_PID"
 }
 test_start() {
+ # A synthetic test without verified side-return handling has already caused a
+ # real client outage. Disable unsafe client forwarding until a companion
+ # return-path implementation and end-to-end validation exist.
+ echo 'single-arm SNAT return path is unverified; client route test is safety locked' >&2
+ return 1
  [ "$(mode)" = direct ] || { echo 'only permitted in direct mode' >&2; return 1; }
  [ ! -f "$TEST_EXP" ] || { echo 'test already running; stop first' >&2; return 1; }
  check_config || return 1
@@ -377,6 +382,7 @@ status() {
   echo "test_client=$(val test_client '')"
   echo "route_validation=runtime-required"
   echo "auto_safety_lock=single_arm_return_unverified"
+  echo "client_test_safety_lock=single_arm_return_unverified"
   echo "dhcp_router=$(uci -q get dhcp.lan.dhcp_option 2>/dev/null | tr '\n' ',' || true)"
   test_status
   echo "notifications=$(case "$(val webhook '')" in https://*) echo configured;; *) echo disabled;; esac)"
@@ -448,8 +454,7 @@ case "${1:-status}" in
   test-stop) test_clear; say '单设备测试手动停止';;
   test-watchdog) test_watchdog "$2";;
   direct) probe_clear; test_clear; uci set bypass_failover.main.mode=direct; uci commit bypass_failover; clear_route; say '用户选择直连';;
-  auto) echo 'single-arm return path is not validated; full-home auto routing remains safety locked' >&2; exit 1
-    : [ ! -f "$TEST_EXP" ] || { echo 'stop single-device test first' >&2; exit 1; }; check_config || exit 1; [ "$(val forwarding_verified 0)" = 1 ] || { echo 'forwarding path not verified; auto mode blocked' >&2; exit 1; }; health || { echo 'real proxy health check failed; auto mode blocked' >&2; exit 1; }; uci set bypass_failover.main.mode=auto; uci commit bypass_failover; start; say '用户开启自动模式';;
+  auto) echo 'single-arm return path is not validated; full-home auto routing remains safety locked' >&2; exit 1;;
   preflight) check_config || exit 1; echo 'config=ok'; check_base && echo 'base=healthy' || echo 'base=unhealthy'; health && echo 'proxy=healthy' || echo 'proxy=unhealthy'; [ "$(val forwarding_verified 0)" = 1 ] && echo 'forwarding=approved' || echo 'forwarding=blocked';;
   logs) tail -n 100 "$LOG" 2>/dev/null || true;;
   *) echo 'usage: start|stop|restart|status|check|direct|auto|logs' >&2; exit 2;;
