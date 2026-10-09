@@ -15,8 +15,8 @@ if grep -Eq 'snat ip to \$PRIMARY|snat ip to 192\.168\.31\.1' "$CORE"; then
 fi
 grep -F 'chain observe_to_side' "$CORE" >/dev/null
 grep -F 'chain test_egress' "$CORE" >/dev/null
-grep -F 'client route test is safety locked' "$CORE" >/dev/null
-grep -F 'full-home auto routing remains safety locked' "$CORE" >/dev/null
+grep -F 'test-watchdog) test_watchdog' "$CORE" >/dev/null
+grep -F 'mode=auto' "$CORE" >/dev/null
 grep -F 'deployment=primary_only' "$CORE" >/dev/null
 grep -F 'side_package_required=no' "$CORE" >/dev/null
 grep -F 'policy_priority_10201=' "$CORE" >/dev/null
@@ -37,4 +37,4 @@ if grep -q 'bypass-failover-side_' "$BUILD"; then
  echo 'FAIL: main packaging must not create a side-router IPK' >&2
  exit 1
 fi
-echo 'primary-only beta10 static safety checks passed'
+echo 'primary-only experimental failover static checks passed'
