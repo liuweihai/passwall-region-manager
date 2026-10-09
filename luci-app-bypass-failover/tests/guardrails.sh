@@ -36,4 +36,4 @@ if grep -q 'bypass-failover-side_' "$BUILD"; then
  echo 'FAIL: main packaging must not create a side-router IPK' >&2
  exit 1
 fi
-echo 'primary-only beta8 static safety checks passed'
+echo 'primary-only beta9 static safety checks passed'
