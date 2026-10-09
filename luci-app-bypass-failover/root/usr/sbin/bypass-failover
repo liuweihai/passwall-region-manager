@@ -250,10 +250,18 @@ test_start() {
  [ "$client" != "$PRIMARY" ] && [ "$client" != "$BYPASS" ] || return 1
  # Never test an address outside the directly connected LAN, including the
  # primary router, side router, and addresses not present in the neighbor table.
- client_mac=$(ip neigh show "$client" dev "$LAN" | awk '/lladdr/{print $5; exit}')
+ # IPv4-only neighbour lookup, with a brief ARP refresh if the cache is cold.
+ # Never infer a device MAC from another interface or IP.
+ client_mac=$(ip -4 neigh show to "$client" dev "$LAN" 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i=="lladdr"){print $(i+1); exit}}')
+ if [ -z "$client_mac" ]; then
+   ping -c 1 -W 1 "$client" >/dev/null 2>&1 || true
+   client_mac=$(ip -4 neigh show to "$client" dev "$LAN" 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i=="lladdr"){print $(i+1); exit}}')
+ fi
  case "$client_mac" in
    ??:??:??:??:??:??) ;;
-   *) echo 'test client MAC not resolved; connect the device first' >&2; return 1 ;;
+   *)
+     echo "test client MAC not resolved: configured_ip=$client lan=$LAN; neighbour=$(ip -4 neigh show to "$client" dev "$LAN" 2>/dev/null)" >&2
+     return 1 ;;
  esac
  ip -4 route get "$client" | grep -q "dev $LAN" || { echo 'test client not in LAN' >&2; return 1; }
  # Transparent TCP mode can be tested without exposing an HTTP/SOCKS listener.
