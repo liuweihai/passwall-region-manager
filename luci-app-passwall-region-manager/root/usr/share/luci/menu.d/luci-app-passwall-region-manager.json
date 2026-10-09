@@ -1,0 +1,15 @@
+{
+  "admin/services/passwall-region-manager": {
+    "title": "地区节点管理",
+    "order": 85,
+    "action": {
+      "type": "view",
+      "path": "passwall-region-manager/dashboard"
+    },
+    "depends": {
+      "acl": [
+        "luci-app-passwall-region-manager"
+      ]
+    }
+  }
+}
