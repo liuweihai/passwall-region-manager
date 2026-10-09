@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bypass Failover v0.2.0-dev (OpenWrt 24.10 / fw4) - IPv4 only.
+# Bypass Failover v0.3.0-beta2 (OpenWrt 24.10 / fw4) - IPv4 only.
 # Installed ONLY on the primary OpenWrt. Disabled by default.
 set -u
 CFG=/etc/config/bypass_failover
@@ -162,7 +162,7 @@ use_bypass() {
   # A single-arm bypass can emit return frames with an Internet source IP.
   # Exclude its layer-2 MAC, not just its IPv4 address, to avoid recirculation.
   ping -c 1 -W 2 "$BYPASS" >/dev/null 2>&1 || return 1
-  bypass_mac=$(ip neigh show "$BYPASS" dev "$LAN" | awk '/lladdr/{print $5; exit}')
+  bypass_mac=$(ip neigh show "$BYPASS" dev "$LAN" | awk '{for(i=1;i<NF;i++) if($i=="lladdr"){print $(i+1); exit}}')
   case "$bypass_mac" in
     ??:??:??:??:??:??) ;;
     *) say '无法确认旁路由 MAC，保持主路由直连'; return 1 ;;
@@ -268,7 +268,7 @@ test_start() {
  # This is a BASE connectivity prerequisite, not a proof of proxy egress.
  check_base || { echo 'bypass connectivity check failed' >&2; return 1; }
  # Do not claim a successful proxy or forwarding result before a real client test.
- mac=$(ip neigh show "$BYPASS" dev "$LAN" | awk '/lladdr/{print $5; exit}')
+ mac=$(ip neigh show "$BYPASS" dev "$LAN" | awk '{for(i=1;i<NF;i++) if($i=="lladdr"){print $(i+1); exit}}')
  case "$mac" in
   ??:??:??:??:??:??) ;;
   *) echo 'cannot determine bypass MAC (anti-loop prerequisite)' >&2; return 1;;
