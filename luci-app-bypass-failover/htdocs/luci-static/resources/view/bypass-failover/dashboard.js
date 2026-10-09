@@ -37,7 +37,8 @@ function showError(e) {
   ['Bypass is not on the LAN',T('旁路由不在主路由局域网内。','Bypass router is not on this LAN.')],
   ['Proxy endpoint must',T('代理检测入口不正确。','Invalid proxy test endpoint.')],
   ['test client IP not configured',T('请先填写测试设备地址。','Enter a test client IP first.')],
-  ['proxy exit check failed',T('代理出口测试尚未通过，未修改网络。','Proxy check failed; no routing changes made.')]
+  ['proxy exit check failed',T('代理出口测试尚未通过，未修改网络。','Proxy check failed; no routing changes made.')],
+  ['bypass connectivity check failed',T('旁路由连接检查失败，没有修改网络。','Bypass router unreachable; no routing changes made.')]
  ];
  dict.some(function(d){if(s.indexOf(d[0])>=0){s=d[1];return true;}return false;});
  message(s,true);
@@ -121,7 +122,7 @@ return view.extend({
   events=E('pre',{'style':'white-space:pre-wrap;max-height:280px;overflow:auto'},data[1]||T('暂无事件','No events'));
   advanced=E('details',{'class':'cbi-section'},[
    E('summary',{'style':'cursor:pointer;font-weight:bold;padding:12px 0'},T('高级设置（了解网络的用户）','Advanced settings (experienced users)')),
-   E('p',{},T('以下为维护工具，普通用户无需修改。单设备临时测试最多 60 秒，尚未通过实机安全验收。','Maintenance tools. Single-client tests last at most 60 seconds and are not field-validated.')),
+   E('p',{},T('以下为维护工具。单设备透明 TCP 测试不再要求 SOCKS5；但真实代理、回程与回退仍需人工核验。','Maintenance tools. Transparent TCP test no longer requires SOCKS5; forwarding and rollback still need real-world verification.')),
    E('h4',{},T('真实代理检测','Real proxy check')),
    proxyInput,' ',
    E('button',{'class':'btn cbi-button','click':function(){run('set-proxy',[proxyInput.value.trim()]).then(reload).catch(showError);}},T('保存检测入口','Save test endpoint')),
@@ -133,7 +134,7 @@ return view.extend({
    ' ',
    E('button',{'class':'btn cbi-button','click':function(){
     ui.showModal(T('确认临时测试','Confirm temporary test'),[
-     E('p',{},T('可能造成这台设备短暂断网，60 秒撤销依赖看门狗正常运行。','May disrupt this device. 60-second rollback relies on watchdog.')),
+     E('p',{},T('仅对指定设备做透明 TCP 临时引流。可能断网；主路由看门狗最长约 60 秒撤销规则。测试启动不代表代理出口验证通过。','Temporary transparent TCP route for one device only. Connectivity may break; rollback depends on the primary-router watchdog. Test start is not proof of proxy functionality.')),
      E('button',{'class':'btn','click':ui.hideModal},T('取消','Cancel')),' ',
      E('button',{'class':'btn cbi-button-positive','click':function(){ui.hideModal();run('test-start').then(reload).catch(showError);}},T('开始测试','Start test'))
     ]);
