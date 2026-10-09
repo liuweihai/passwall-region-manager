@@ -1,10 +1,37 @@
 # PassWall Region Manager
 
-**版本：v0.1.0（预览版）**
+**版本：v0.1.1（预览版）**
 
 OpenWrt / PassWall 多地区节点管理器：按名称扫描 US、JP、HK、SG、TW、KR 节点，使用独立临时 Xray 实例检测 HTTPS 和实际出口国家，缓存合格节点，并提供分流预览。
 
 > ⚠️ **当前未实现无人值守故障切换、定时监控和自动按网站分流。** 不要在生产网络执行 `apply`；先使用只读命令验证。在路由器上测试时，不需要改动现有小米 DHCP、PassWall 主节点或 DNS。
+
+## v0.1.1 更新内容
+
+- 自动清理 **带有已结束 PID** 的遗留任务锁；活跃进程及无法确认归属的锁不自动删除。
+- 独立 Xray HTTPS 检测失败时显示 curl 错误码；HTTPS 成功但出口查询失败单独报告，**不再称为节点不可用**。
+- 独立 Xray 启动失败、协议不支持、国家不匹配分别输出原因。
+- 修正并发批次端口槽位计算；仍须避免同时运行其他占用相同探测端口的程序。
+- 保留现有分流映射、验证缓存格式和只读默认行为；不会主动修改 DNS、DHCP 或主节点。
+
+**重要：** 此工具的探测不等价于 PassWall 后台延迟测试；只有 HTTPS 成功且出口国家符合预期才会进入 verified.tsv，用于分流预览。状态未确认不表示节点无法连接。
+
+## 升级（OpenWrt，GitHub Raw 无法访问时）
+
+已安装 `jq`、`curl`、`base64` 的设备可通过 GitHub API 更新主程序。先下载到临时文件，检查成功后再替换：
+
+```sh
+API=https://api.github.com/repos/liuweihai/passwall-region-manager/contents/passwall-region-manager
+tmp=/tmp/passwall-region-manager-v0.1.1
+curl -fLsS --connect-timeout 8 --max-time 40 -H 'Accept: application/vnd.github+json' "$API" -o /tmp/passwall-region-manager-api.json &&
+jq -er '.content' /tmp/passwall-region-manager-api.json | base64 -d > "$tmp" &&
+[ -s "$tmp" ] && sh -n "$tmp" &&
+cp "$tmp" /usr/bin/passwall-region-manager &&
+chmod 755 /usr/bin/passwall-region-manager &&
+echo '升级完成'
+```
+
+脚本不会覆盖已有 `/etc/passwall-region-manager/regions.conf`。升级后使用 `passwall-region-manager help`、`scan`、`verify US` 测试。不要在生产旁路由执行 `apply`。
 
 ## 安装依赖
 
