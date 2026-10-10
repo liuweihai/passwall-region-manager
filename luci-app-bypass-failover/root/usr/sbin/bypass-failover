@@ -369,7 +369,7 @@ table inet $NFT {
  }
  chain dns_return {
   type nat hook postrouting priority srcnat; policy accept;
-  oifname "$LAN" ip daddr $BYPASS ip saddr != $PRIMARY meta l4proto { tcp, udp } th dport 53 counter snat ip to $PRIMARY
+  oifname "$LAN" ip daddr $BYPASS ip saddr != $PRIMARY ct status dnat meta l4proto { tcp, udp } th dport 53 counter snat ip to $PRIMARY
  }
 }
 EOF
