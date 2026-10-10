@@ -24,7 +24,7 @@ Maintainer: liuweihai
 Depends: luci-base, curl, ip-full, nftables, jq, ca-bundle
 Section: luci
 Priority: optional
-Description: IPv4 failover with scoped DNS NAT, route reconciliation and health-driven rollback
+Description: IPv4 failover with scoped DNS NAT, procd-supervised route reconciliation and rollback
 EOF
 printf '%s\n' /etc/config/bypass_failover > "$WORK/control/conffiles"
 printf '2.0\n' > "$WORK/debian-binary"
