@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bypass Failover v1.3.0-rc1 (OpenWrt 24.10 / fw4) - IPv4 only.
+# Bypass Failover v1.4.0-rc1 (OpenWrt 24.10 / fw4) - IPv4 only.
 # Installed ONLY on the primary OpenWrt. Disabled by default.
 set -u
 CFG=/etc/config/bypass_failover
@@ -145,6 +145,7 @@ check_config() {
   HOLD=$(val hold_seconds 120)
   for ip in "$PRIMARY" "$BYPASS"; do valid_ip "$ip" || { say "无效 IP: $ip"; return 1; }; done
   [ "$PRIMARY" != "$BYPASS" ] || return 1
+  [ "$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)" = 1 ] || { say "主路由 IPv4 转发未开启，不启动引流"; return 1; }
   ip link show "$LAN" >/dev/null 2>&1 || { say 'LAN interface not found'; return 1; }
   ip -4 addr show dev "$LAN" | grep -Fq "$PRIMARY/" || { say '主路由LAN地址不匹配'; return 1; }
   ip -4 route get "$BYPASS" | grep -q "dev $LAN" || { say '旁路由不在指定 LAN'; return 1; }
@@ -207,7 +208,7 @@ EOF
 # This tests the router-originated path, NOT the client return path.
 # The actual switching gate remains locked until client path acceptance.
 health_report() {
- say '网络检测开始：主路由直连模式下检查旁路由状态'
+ say '网络检测开始：检查旁路由 ICMP、DNS 和 HTTPS 代理路径'
  check_config || { say '网络检测失败：配置校验未通过'; echo 'config=invalid'; return 1; }
  say '阶段1：检查旁路由 ICMP 连通性'
  if ! ping -c 1 -W 2 "$BYPASS" >/dev/null 2>&1; then
@@ -230,13 +231,13 @@ health_report() {
  echo 'dns=reachable'
  say '阶段1成功：旁路由 DNS 可达；阶段2开始：经旁路由 HTTPS 检测'
  if probe_transparent; then
-  say '阶段2成功：HTTPS 路径可达；客户端回程仍未验收；保持直连'
+  say '阶段2成功：HTTPS 路径可达；客户端回程仍未验收'
   echo 'external=reachable_via_side_route'
   echo 'decision=side_candidate'
   echo 'client_return_path=unverified'
   return 0
  fi
- say '阶段2失败或未确认：HTTPS 路径不可用；保持直连'
+ say '阶段2失败或未确认：HTTPS 路径不可用；自动切换依据失败次数处理'
  echo 'external=unreachable_or_unverified'
  echo 'decision=direct'
  echo 'client_return_path=unverified'
@@ -630,6 +631,7 @@ status() {
   echo "network_event_handler=installed"
   echo "auto_safety_lock=client_end_to_end_unverified"
   echo "route_integrity=$(if full_route_intact; then echo intact; else echo missing_or_partial; fi)"
+  echo "lan_forwarding=$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo unknown)"
   echo "client_test_safety_lock=none"
   echo "dhcp_router=$(uci -q get dhcp.lan.dhcp_option 2>/dev/null | tr '\n' ',' || true)"
   test_status
