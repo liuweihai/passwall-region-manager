@@ -63,6 +63,12 @@ grep -F 'disabled' "$UI" >/dev/null
 grep -F 'meta l4proto { tcp, udp }' "$CORE" >/dev/null
 grep -F 'live_routing=' "$CORE" >/dev/null
 grep -F 'fallback_policy=main' "$CORE" >/dev/null
+grep -F 'lan_forwarding=' "$CORE" >/dev/null
+grep -F '主路由 IPv4 转发未开启' "$CORE" >/dev/null
+grep -F 'WORK/control/postinst' "$BUILD" >/dev/null
+grep -F 'WORK/control/prerm' "$BUILD" >/dev/null
+grep -F '/etc/init.d/bypass-failover restart' "$BUILD" >/dev/null
+
 if grep -q 'bypass-failover-side_' "$BUILD"; then
  echo 'FAIL: main packaging must not create a side-router IPK' >&2
  exit 1
