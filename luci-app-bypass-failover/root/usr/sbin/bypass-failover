@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bypass Failover v1.1.0-rc1 (OpenWrt 24.10 / fw4) - IPv4 only.
+# Bypass Failover v1.2.0-rc1 (OpenWrt 24.10 / fw4) - IPv4 only.
 # Installed ONLY on the primary OpenWrt. Disabled by default.
 set -u
 CFG=/etc/config/bypass_failover
@@ -355,7 +355,7 @@ table inet $NFT {
  # for Mihomo's rules, avoid accidental LAN return-path changes.
  chain dns_to_side {
   type nat hook prerouting priority dstnat; policy accept;
-  iifname "$LAN" ether saddr != $bypass_mac ip saddr != $BYPASS meta l4proto { tcp, udp } th dport 53 counter dnat ip to $BYPASS
+  iifname "$LAN" ether saddr != $bypass_mac ip saddr != $BYPASS ip daddr $PRIMARY meta l4proto { tcp, udp } th dport 53 counter dnat ip to $BYPASS
  }
  chain dns_return {
   type nat hook postrouting priority srcnat; policy accept;
@@ -367,7 +367,9 @@ EOF
   if ! ip -4 rule add priority 10201 fwmark "$MARK" table "$TABLE"; then clear_route; return 1; fi
   # Confirm marked client lookups select the actual side next hop before
   # reporting success. This is a routing assertion, not end-to-end proof.
-  route_check=$(ip -4 route get 1.1.1.1 from "$PRIMARY" mark "$MARK" 2>&1)
+  probe_client=$(val test_client '')
+  valid_ip "$probe_client" || probe_client="$PRIMARY"
+  route_check=$(ip -4 route get 1.1.1.1 from "$probe_client" iif "$LAN" mark "$MARK" 2>&1)
   case "$route_check" in
     *"via $BYPASS dev $LAN"*) ;;
     *) say "全屋策略路由核验失败：$route_check"; clear_route; return 1 ;;
@@ -595,7 +597,7 @@ status() {
   echo "proxy_endpoint=$(val proxy_endpoint '')"
   echo "proxy_check=$(case "$(val proxy_endpoint '')" in '') echo transparent;; *) echo configured;; esac)"
   echo "forwarding_verified=$(val forwarding_verified 0)"
-  echo "dns_strategy=primary-router"
+  echo "dns_strategy=client_primary_to_side_when_bypass"
   echo "ipv6_strategy=unchanged"
   echo "deployment=primary_only"
   echo "side_package_required=no"
@@ -604,13 +606,19 @@ status() {
   echo "client_dns_redirect=$(if [ -f "$FULL_OWNED" ] && nft list chain inet "$NFT" dns_to_side >/dev/null 2>&1; then echo active; else echo disabled; fi)"
   echo "client_dns_target=$(val bypass '')"
   echo "client_verified=no"
+  echo "client_diagnostic=use_direct_device_browsing_to_accept"
   echo "route_validation=runtime-required"
   echo "health_evidence=side_icmp_then_routed_https"
   echo "client_return_path=direct_l2_from_side_unverified"
   echo "fallback_policy=main"
   echo "live_routing=$(if [ -f "$FULL_OWNED" ] && nft list table inet "$NFT" >/dev/null 2>&1; then echo installed; else echo absent; fi)"
+  echo "dns_intercept_scope=client_queries_to_primary_only"
+  echo "side_dns_reachable=$(if nslookup www.baidu.com "$(val bypass '')" >/dev/null 2>&1; then echo yes; else echo no; fi)"
+  echo "active_policy_rule=$(ip -4 rule show | grep -c '^10201:' || true)"
+  echo "lan_ingress_packets=$(nft list chain inet "$NFT" mark_in 2>/dev/null | awk '/counter packets/{for(i=1;i<=NF;i++)if($i=="packets"){print $(i+1);exit}}')"
+  echo "side_egress_packets=$(nft list chain inet "$NFT" observe_to_side 2>/dev/null | awk '/counter packets/{for(i=1;i<=NF;i++)if($i=="packets"){print $(i+1);exit}}')"
   echo "network_event_handler=installed"
-  echo "auto_safety_lock=none"
+  echo "auto_safety_lock=client_end_to_end_unverified"
   echo "client_test_safety_lock=none"
   echo "dhcp_router=$(uci -q get dhcp.lan.dhcp_option 2>/dev/null | tr '\n' ',' || true)"
   test_status
