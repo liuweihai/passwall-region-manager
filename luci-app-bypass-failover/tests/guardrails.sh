@@ -25,6 +25,12 @@ grep -F 'ip daddr $PRIMARY meta l4proto { tcp, udp } th dport 53' "$CORE" >/dev/
 grep -F 'lan_ingress_packets=' "$CORE" >/dev/null
 grep -F 'side_egress_packets=' "$CORE" >/dev/null
 grep -F 'client_end_to_end_unverified' "$CORE" >/dev/null
+grep -F 'full_route_intact()' "$CORE" >/dev/null
+grep -F 'current=direct' "$CORE" >/dev/null
+grep -F 'ct status dnat meta l4proto' "$CORE" >/dev/null
+grep -F 'ip daddr $PRIMARY meta l4proto' "$CORE" >/dev/null
+grep -F 'dns_strategy=client_primary_to_side_when_bypass' "$CORE" >/dev/null
+grep -F 'ipv6_strategy=unmanaged_not_a_full_ipv6_failover' "$CORE" >/dev/null
 grep -F 'chain dns_return' "$CORE" >/dev/null
 grep -F 'th dport 53 counter dnat ip to $BYPASS' "$CORE" >/dev/null
 grep -F 'th dport 53 counter snat ip to $PRIMARY' "$CORE" >/dev/null
