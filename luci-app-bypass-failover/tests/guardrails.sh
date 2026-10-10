@@ -71,6 +71,12 @@ grep -F 'fallback_policy=main' "$CORE" >/dev/null
 grep -F 'log_maintenance()' "$CORE" >/dev/null
 grep -F 'log_limit_bytes=131072' "$CORE" >/dev/null
 grep -F 'health_targets=' "$CORE" >/dev/null
+# status runs without check_config; avoid referencing its BYPASS local under set -u.
+if grep -F 'echo "health_targets=icmp:$BYPASS' "$CORE" >/dev/null; then
+ echo 'FAIL: status references uninitialized BYPASS' >&2
+ exit 1
+fi
+grep -F 'echo "health_targets=icmp:$(val bypass' "$CORE" >/dev/null
 grep -F 'HTTPS结果 target=1.1.1.1:443' "$CORE" >/dev/null
 grep -F 'DNS结果 resolver=' "$CORE" >/dev/null
 grep -F 'ICMP结果 target=' "$CORE" >/dev/null
