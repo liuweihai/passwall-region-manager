@@ -14,6 +14,11 @@ if grep -F 'echo "$" > "$TEST_PID"' "$CORE" >/dev/null; then
 fi
 sh -n root/usr/libexec/bypass-failover-web
 sh -n root/etc/init.d/bypass-failover
+grep -Fx 'USE_PROCD=1' root/etc/init.d/bypass-failover >/dev/null
+grep -F 'procd_set_param respawn' root/etc/init.d/bypass-failover >/dev/null
+grep -F 'start) start;; stop) stop;; restart) stop; start;;' "$CORE" >/dev/null
+grep -F 'prepare) prepare;;' "$CORE" >/dev/null
+grep -F 'cleanup-owned) cleanup_owned;;' "$CORE" >/dev/null
 sh -n root/etc/hotplug.d/iface/95-bypass-failover
 if grep -Eq 'meta mark \$MARK.*snat ip|snat ip to 192\.168\.31\.1' "$CORE"; then
  echo 'FAIL: blanket primary SNAT is present' >&2
