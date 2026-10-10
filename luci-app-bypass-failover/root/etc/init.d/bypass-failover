@@ -1,7 +1,24 @@
 #!/bin/sh /etc/rc.common
+# procd supervises the routing daemon; no unmanaged detached child.
 START=95
 STOP=10
-USE_PROCD=0
-start() { /usr/sbin/bypass-failover start; }
-stop() { /usr/sbin/bypass-failover stop; }
-restart() { stop; start; }
+USE_PROCD=1
+
+start_service() {
+  /usr/sbin/bypass-failover prepare || return 1
+  procd_open_instance
+  procd_set_param command /usr/sbin/bypass-failover daemon
+  procd_set_param respawn 3600 5 5
+  procd_set_param stdout 1
+  procd_set_param stderr 1
+  procd_close_instance
+}
+
+stop_service() {
+  /usr/sbin/bypass-failover cleanup-owned
+}
+
+reload_service() {
+  stop
+  start
+}
