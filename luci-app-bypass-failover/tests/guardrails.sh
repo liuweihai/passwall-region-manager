@@ -68,6 +68,12 @@ grep -F 'disabled' "$UI" >/dev/null
 grep -F 'meta l4proto { tcp, udp }' "$CORE" >/dev/null
 grep -F 'live_routing=' "$CORE" >/dev/null
 grep -F 'fallback_policy=main' "$CORE" >/dev/null
+grep -F 'log_maintenance()' "$CORE" >/dev/null
+grep -F 'log_limit_bytes=131072' "$CORE" >/dev/null
+grep -F 'health_targets=' "$CORE" >/dev/null
+grep -F 'HTTPS结果 target=1.1.1.1:443' "$CORE" >/dev/null
+grep -F 'DNS结果 resolver=' "$CORE" >/dev/null
+grep -F 'ICMP结果 target=' "$CORE" >/dev/null
 grep -F 'lan_forwarding=' "$CORE" >/dev/null
 grep -F '主路由 IPv4 转发未开启' "$CORE" >/dev/null
 grep -F 'WORK/control/postinst' "$BUILD" >/dev/null
