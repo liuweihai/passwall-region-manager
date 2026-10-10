@@ -21,6 +21,10 @@ if grep -Eq 'meta mark \$MARK.*snat ip|snat ip to 192\.168\.31\.1' "$CORE"; then
 fi
 grep -F 'chain observe_to_side' "$CORE" >/dev/null
 grep -F 'chain dns_to_side' "$CORE" >/dev/null
+grep -F 'ip daddr $PRIMARY meta l4proto { tcp, udp } th dport 53' "$CORE" >/dev/null
+grep -F 'lan_ingress_packets=' "$CORE" >/dev/null
+grep -F 'side_egress_packets=' "$CORE" >/dev/null
+grep -F 'client_end_to_end_unverified' "$CORE" >/dev/null
 grep -F 'chain dns_return' "$CORE" >/dev/null
 grep -F 'th dport 53 counter dnat ip to $BYPASS' "$CORE" >/dev/null
 grep -F 'th dport 53 counter snat ip to $PRIMARY' "$CORE" >/dev/null
