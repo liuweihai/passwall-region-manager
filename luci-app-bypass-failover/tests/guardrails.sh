@@ -25,6 +25,11 @@ if grep -Eq 'meta mark \$MARK.*snat ip|snat ip to 192\.168\.31\.1' "$CORE"; then
  exit 1
 fi
 grep -F 'chain observe_to_side' "$CORE" >/dev/null
+grep -F 'fw4_forward_install()' "$CORE" >/dev/null
+grep -F 'fw4_forward_clear()' "$CORE" >/dev/null
+grep -F 'nft insert rule inet fw4 forward' "$CORE" >/dev/null
+grep -F 'nft delete rule inet fw4 forward handle' "$CORE" >/dev/null
+grep -F 'fw4_forward_rule=' "$CORE" >/dev/null
 grep -F 'chain dns_to_side' "$CORE" >/dev/null
 grep -F 'ip daddr $PRIMARY meta l4proto { tcp, udp } th dport 53' "$CORE" >/dev/null
 grep -F 'lan_ingress_packets=' "$CORE" >/dev/null
