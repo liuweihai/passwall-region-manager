@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bypass Failover v1.5.0-rc1 (OpenWrt 24.10 / fw4) - IPv4 only.
+# Bypass Failover v1.6.0-rc1 (OpenWrt 24.10 / fw4) - IPv4 only.
 # Installed ONLY on the primary OpenWrt. Disabled by default.
 set -u
 CFG=/etc/config/bypass_failover
@@ -127,7 +127,18 @@ safe_test_status() {
  cat "$SAFE_TEST_LAST" 2>/dev/null || echo idle
 }
 val() { uci -q get "bypass_failover.main.$1" 2>/dev/null || printf '%s' "$2"; }
-say() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG"; tail -n 400 "$LOG" > "$LOG.new"; mv "$LOG.new" "$LOG"; }
+# All logs live in tmpfs. Bound memory and avoid rewriting the file on every line.
+log_maintenance() {
+ [ -f "$LOG" ] || return 0
+ size=$(wc -c < "$LOG" 2>/dev/null | tr -d ' ')
+ case "$size" in ''|*[!0-9]*) return 0;; esac
+ [ "$size" -le 131072 ] && return 0
+ tail -n 400 "$LOG" > "$LOG.new" 2>/dev/null && mv "$LOG.new" "$LOG"
+}
+say() {
+ printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG"
+ log_maintenance
+}
 notify() {
   url=$(val webhook '')
   case "$url" in https://*) ;; *) return 0;; esac
@@ -168,10 +179,25 @@ probe_clear() {
   fi
 }
 probe_ip() {
-  curl -4 -fsS --connect-timeout 3 --max-time 8 --interface "$LAN" \
-    --resolve one.one.one.one:443:1.1.1.1 \
-    'https://one.one.one.one/cdn-cgi/trace' 2>/dev/null |
-    sed -n 's/^ip=//p' | tr -d '\r' | head -n 1
+  # Only test a fixed HTTPS IPv4 endpoint, without DNS resolution.
+  # Write independent timing / HTTP / TLS details into the application log.
+  body=$(mktemp /tmp/bf-curl-body.XXXXXX) || return 1
+  err=$(mktemp /tmp/bf-curl-err.XXXXXX) || { rm -f "$body"; return 1; }
+  metrics=$(curl -4 -sS -o "$body" --connect-timeout 3 --max-time 8 \
+    --interface "$LAN" --resolve one.one.one.one:443:1.1.1.1 \
+    -w 'http=%{http_code} tcp=%{time_connect}s tls=%{time_appconnect}s total=%{time_total}s remote=%{remote_ip}' \
+    'https://one.one.one.one/cdn-cgi/trace' 2>"$err")
+  rc=$?
+  exit_ip=$(sed -n 's/^ip=//p' "$body" | tr -d '\r' | head -n 1)
+  error=$(head -c 160 "$err" | tr '\n' ' ')
+  rm -f "$body" "$err"
+  if [ "$rc" -ne 0 ]; then
+    say "HTTPS失败 target=1.1.1.1:443 url=one.one.one.one/cdn-cgi/trace protocol=TCP/TLS via=$BYPASS curl_exit=$rc $metrics error=$error"
+    return 1
+  fi
+  say "HTTPS结果 target=1.1.1.1:443 via=$BYPASS $metrics exit_ip=${exit_ip:-missing}"
+  valid_ip "$exit_ip" || return 1
+  printf '%s\n' "$exit_ip"
 }
 # Check bypass-routed HTTPS without requiring the *direct* path to reach
 # Cloudflare. This proves only that a TCP request succeeded over a marked
@@ -211,8 +237,12 @@ EOF
 health_report() {
  say '网络检测开始：检查旁路由 ICMP、DNS 和 HTTPS 代理路径'
  check_config || { say '网络检测失败：配置校验未通过'; echo 'config=invalid'; return 1; }
- say '阶段1：检查旁路由 ICMP 连通性'
- if ! ping -c 1 -W 2 "$BYPASS" >/dev/null 2>&1; then
+ say "检测配置 ICMP=$BYPASS(1包/2秒) DNS=www.baidu.com@$BYPASS:53 HTTPS=one.one.one.one[1.1.1.1]:443(/cdn-cgi/trace) 路径=策略路由经$BYPASS，测试源=$PRIMARY；非真实客户端测试"
+ ping_detail=$(ping -c 1 -W 2 "$BYPASS" 2>&1)
+ ping_rc=$?
+ ping_summary=$(printf '%s\n' "$ping_detail" | grep -E 'packets transmitted|packet loss|round-trip|rtt min' | tr '\n' ';' | cut -c 1-180)
+ say "ICMP结果 target=$BYPASS exit=$ping_rc summary=$ping_summary"
+ if [ "$ping_rc" -ne 0 ]; then
   say '阶段1失败：旁路由 ICMP 无响应；跳过 HTTPS 检测；保持直连'
   echo 'side=offline'
   echo 'external=skipped'
@@ -221,7 +251,12 @@ health_report() {
   return 1
  fi
  echo 'side=online'
- if ! nslookup www.baidu.com "$BYPASS" >/dev/null 2>&1; then
+ dns_detail=$(nslookup www.baidu.com "$BYPASS" 2>&1)
+ dns_rc=$?
+ dns_addresses=$(printf '%s\n' "$dns_detail" | awk '/^Address([[:space:]]+[0-9]+)?:/ {print $NF}' | tail -n 5 | tr '\n' ',' | cut -c 1-150)
+ dns_error=$(printf '%s\n' "$dns_detail" | grep -Ei 'timed out|refused|no servers|can.t resolve|SERVFAIL|NXDOMAIN' | head -n 1 | cut -c 1-150)
+ say "DNS结果 resolver=$BYPASS:53 query=www.baidu.com type=A/AAAA(system nslookup) exit=$dns_rc answers=$dns_addresses error=${dns_error:-none}"
+ if [ "$dns_rc" -ne 0 ]; then
   say '旁路由 DNS 检测失败，保持或恢复主路由直连'
   echo 'dns=unavailable'
   echo 'external=skipped'
@@ -657,6 +692,9 @@ status() {
   echo "lan_ingress_packets=$(nft list chain inet "$NFT" mark_in 2>/dev/null | awk '/counter packets/{for(i=1;i<=NF;i++)if($i=="packets"){print $(i+1);exit}}')"
   echo "side_egress_packets=$(nft list chain inet "$NFT" observe_to_side 2>/dev/null | awk '/counter packets/{for(i=1;i<=NF;i++)if($i=="packets"){print $(i+1);exit}}')"
   echo "network_event_handler=installed"
+  echo "health_targets=icmp:$BYPASS,dns:www.baidu.com@$BYPASS,https:1.1.1.1:443"
+  echo "log_limit_bytes=131072"
+  echo "log_retained_lines=400"
   echo "auto_safety_lock=client_end_to_end_unverified"
   echo "route_integrity=$(if full_route_intact; then echo intact; else echo missing_or_partial; fi)"
   echo "lan_forwarding=$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo unknown)"
@@ -672,13 +710,22 @@ daemon() {
   trap 'clear_route; rm -f "$PID"; exit 0' INT TERM EXIT
   last=0; failures=0; successes=0
   clear_route; say '守护进程启动，安全默认直连'
+  cycle=0
   while :; do
+    cycle=$((cycle+1))
+    [ $((cycle%30)) -ne 0 ] || { log_maintenance; say "日志维护 file=$LOG limit=128KiB retain=400lines cycle=$cycle"; }
     newmode=$(mode)
     if [ "$newmode" != auto ]; then
       [ "$(cat "$STATE")" = direct ] || { clear_route; say '切换为手动直连'; }
       sleep "$INTERVAL"; continue
     fi
-    if health; then failures=0; successes=$((successes+1)); else successes=0; failures=$((failures+1)); fi
+    if health; then
+      failures=0; successes=$((successes+1))
+      say "健康计数 result=ok successes=$successes failures=$failures fail_threshold=$FAIL recover_threshold=$RECOVER"
+    else
+      successes=0; failures=$((failures+1))
+      say "健康计数 result=failed successes=$successes failures=$failures fail_threshold=$FAIL recover_threshold=$RECOVER"
+    fi
     now=$(date +%s)
     current=$(cat "$STATE" 2>/dev/null || echo direct)
     # fw4/netifd reload can remove nft chains while the daemon continues
