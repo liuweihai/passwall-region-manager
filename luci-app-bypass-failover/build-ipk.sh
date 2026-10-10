@@ -18,13 +18,13 @@ python3 -m json.tool "$WORK/data/usr/share/luci/menu.d/luci-app-bypass-failover.
 python3 -m json.tool "$WORK/data/usr/share/rpcd/acl.d/luci-app-bypass-failover.json" >/dev/null
 cat > "$WORK/control/control" <<'EOF'
 Package: luci-app-bypass-failover
-Version: 1.4.0-rc1
+Version: 1.5.0-rc1
 Architecture: all
 Maintainer: liuweihai
 Depends: luci-base, curl, ip-full, nftables, jq, ca-bundle
 Section: luci
 Priority: optional
-Description: IPv4 failover with scoped DNS NAT, procd-supervised route reconciliation and rollback
+Description: Same-LAN bypass forwarding via fw4, reversible DNS NAT and procd fallback
 EOF
 printf '%s\n' /etc/config/bypass_failover > "$WORK/control/conffiles"
 # Use opkg lifecycle hooks to supervise auto mode after upgrades and
@@ -64,10 +64,10 @@ tar -C "$WORK/data" -czf "$WORK/data.tar.gz" .
 # not a Debian ar archive. Match OpenWrt scripts/ipkg-build.
 (
   cd "$WORK"
-  tar --format=gnu --numeric-owner -cf - ./debian-binary ./data.tar.gz ./control.tar.gz | gzip -n > "$OUT/luci-app-bypass-failover_1.4.0-rc1_all.ipk"
+  tar --format=gnu --numeric-owner -cf - ./debian-binary ./data.tar.gz ./control.tar.gz | gzip -n > "$OUT/luci-app-bypass-failover_1.5.0-rc1_all.ipk"
 )
 # Reject malformed packages at build time; verify both inner archives.
-tar -tzf "$OUT/luci-app-bypass-failover_1.4.0-rc1_all.ipk" | grep -Fx './control.tar.gz' >/dev/null
-tar -tzf "$OUT/luci-app-bypass-failover_1.4.0-rc1_all.ipk" | grep -Fx './data.tar.gz' >/dev/null
-tar -tzf "$OUT/luci-app-bypass-failover_1.4.0-rc1_all.ipk" | grep -Fx './debian-binary' >/dev/null
-echo "Built $OUT/luci-app-bypass-failover_1.4.0-rc1_all.ipk (OpenWrt opkg tar.gz format)"
+tar -tzf "$OUT/luci-app-bypass-failover_1.5.0-rc1_all.ipk" | grep -Fx './control.tar.gz' >/dev/null
+tar -tzf "$OUT/luci-app-bypass-failover_1.5.0-rc1_all.ipk" | grep -Fx './data.tar.gz' >/dev/null
+tar -tzf "$OUT/luci-app-bypass-failover_1.5.0-rc1_all.ipk" | grep -Fx './debian-binary' >/dev/null
+echo "Built $OUT/luci-app-bypass-failover_1.5.0-rc1_all.ipk (OpenWrt opkg tar.gz format)"
