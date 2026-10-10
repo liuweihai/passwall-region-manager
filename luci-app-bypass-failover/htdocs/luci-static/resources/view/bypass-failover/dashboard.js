@@ -58,10 +58,11 @@ function renderSummary(data) {
  var s=parse(data);
  var address=s.bypass||'';
  if (document.activeElement!==addrInput) addrInput.value=address;
- var active=s.mode==='auto' && s.state==='bypass';
+ var active=s.mode==='auto' && s.state==='bypass' && s.live_routing==='installed';
+ var partial=s.mode==='auto' && s.state==='bypass' && !active;
  header.replaceChildren(
-  E('h3',{},active?T('自动引流已安装（真实客户端效果待验收）','Automatic routing installed (client access unverified)'):T('网络保护尚未开启','Network protection is not active')),
-  E('p',{},active?T('主路由已引流外网 TCP/UDP；仅客户端发往主路由的 DNS 被接管。入口 '+(s.lan_ingress_packets||'0')+' 包，旁路由出口 '+(s.side_egress_packets||'0')+' 包；需以百度和 Google 实际访问为准。','LAN forwarding installed. Ingress '+(s.lan_ingress_packets||'0')+' packets; egress '+(s.side_egress_packets||'0')+' packets. Actual client browsing is the acceptance test.'):
+  E('h3',{},partial?T('检测到引流规则不完整，等待自动恢复','Partial route rules detected; awaiting recovery'):active?T('自动引流已安装（真实客户端效果待验收）','Automatic routing installed (client access unverified)'):T('网络保护尚未开启','Network protection is not active')),
+  E('p',{},partial?T('规则状态与运行状态不一致，守护进程将回退到主路由并重新检测。','Route rules are incomplete; daemon will roll back and retry.'):active?T('主路由已引流外网 TCP/UDP；仅客户端发往主路由的 DNS 被接管。入口 '+(s.lan_ingress_packets||'0')+' 包，旁路由出口 '+(s.side_egress_packets||'0')+' 包；需以百度和 Google 实际访问为准。','LAN forwarding installed. Ingress '+(s.lan_ingress_packets||'0')+' packets; egress '+(s.side_egress_packets||'0')+' packets. Actual client browsing is the acceptance test.'):
     T('你的网络保持原样。完成检查后，才能开启自动保护。','Your network is unchanged. Complete checks before enabling protection.')),
   E('p',{},s.test==='running'?
     T('临时测试剩余约 '+(s.test_remaining||'?')+' 秒；入口 '+(s.test_packets||'0')+' 包、出口 '+(s.test_egress_packets||'0')+' 包（不代表代理成功）。','Temporary test: '+(s.test_remaining||'?')+'s; marked '+(s.test_packets||'0')+', 出口 '+(s.test_egress_packets||'0')+' packets (not proxy proof).'):
