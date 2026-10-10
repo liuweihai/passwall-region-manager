@@ -34,7 +34,16 @@ cat > "$WORK/control/postinst" <<'POSTINST'
 [ -n "${IPKG_INSTROOT:-}" ] && exit 0
 [ -x /etc/init.d/bypass-failover ] || exit 0
 /etc/init.d/bypass-failover enable || exit 1
-/etc/init.d/bypass-failover restart || exit 1
+# An unconfigured first install is valid: open LuCI and enter the side IP.
+# Upgrade an already configured router by restarting its supervised daemon.
+side=$(uci -q get bypass_failover.main.bypass 2>/dev/null || true)
+if [ -n "$side" ]; then
+  /etc/init.d/bypass-failover restart || {
+    echo "bypass-failover: service failed to start; no routing activated" >&2
+    # Package installation must not pretend service is operational.
+    exit 1
+  }
+fi
 exit 0
 POSTINST
 cat > "$WORK/control/prerm" <<'PRERM'
