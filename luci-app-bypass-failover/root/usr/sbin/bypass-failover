@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bypass Failover v1.6.0-rc1 (OpenWrt 24.10 / fw4) - IPv4 only.
+# Bypass Failover v1.6.1-rc1 (OpenWrt 24.10 / fw4) - IPv4 only.
 # Installed ONLY on the primary OpenWrt. Disabled by default.
 set -u
 CFG=/etc/config/bypass_failover
@@ -692,7 +692,7 @@ status() {
   echo "lan_ingress_packets=$(nft list chain inet "$NFT" mark_in 2>/dev/null | awk '/counter packets/{for(i=1;i<=NF;i++)if($i=="packets"){print $(i+1);exit}}')"
   echo "side_egress_packets=$(nft list chain inet "$NFT" observe_to_side 2>/dev/null | awk '/counter packets/{for(i=1;i<=NF;i++)if($i=="packets"){print $(i+1);exit}}')"
   echo "network_event_handler=installed"
-  echo "health_targets=icmp:$BYPASS,dns:www.baidu.com@$BYPASS,https:1.1.1.1:443"
+  echo "health_targets=icmp:$(val bypass ''),dns:www.baidu.com@$(val bypass ''),https:1.1.1.1:443"
   echo "log_limit_bytes=131072"
   echo "log_retained_lines=400"
   echo "auto_safety_lock=client_end_to_end_unverified"
