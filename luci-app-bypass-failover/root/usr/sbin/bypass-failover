@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bypass Failover v1.2.0-rc1 (OpenWrt 24.10 / fw4) - IPv4 only.
+# Bypass Failover v1.3.0-rc1 (OpenWrt 24.10 / fw4) - IPv4 only.
 # Installed ONLY on the primary OpenWrt. Disabled by default.
 set -u
 CFG=/etc/config/bypass_failover
@@ -313,6 +313,16 @@ fallback_audit() {
  echo 'fallback_policy=main'
  echo 'client_forwarding=locked_until_end_to_end_verified'
 }
+# Runtime integrity: routing, NAT and rule must be present together.
+# Do not mistake a stale marker or an empty policy table for active routing.
+full_route_intact() {
+ owned_full || return 1
+ nft list chain inet "$NFT" mark_in >/dev/null 2>&1 || return 1
+ nft list chain inet "$NFT" dns_to_side >/dev/null 2>&1 || return 1
+ nft list chain inet "$NFT" dns_return >/dev/null 2>&1 || return 1
+ ip -4 rule show | grep -Eq '^10201:.*fwmark 0x4246 .*lookup 201' || return 1
+ ip -4 route show table "$TABLE" | grep -Fq "default via $(val bypass '') dev $(val lan br-lan)" || return 1
+}
 use_bypass() {
   [ ! -f "$TEST_EXP" ] || { echo 'test in progress'; return 1; }
   # Fail closed to direct: build policy table before mark rule. Exclude router itself,
@@ -603,7 +613,7 @@ status() {
   echo "side_package_required=no"
   echo "test_client=$(val test_client '')"
   echo "forwarding_scope=ipv4_tcp_udp_external"
-  echo "client_dns_redirect=$(if [ -f "$FULL_OWNED" ] && nft list chain inet "$NFT" dns_to_side >/dev/null 2>&1; then echo active; else echo disabled; fi)"
+  echo "client_dns_redirect=$(if full_route_intact; then echo active; else echo disabled_or_partial; fi)"
   echo "client_dns_target=$(val bypass '')"
   echo "client_verified=no"
   echo "client_diagnostic=use_direct_device_browsing_to_accept"
@@ -611,7 +621,7 @@ status() {
   echo "health_evidence=side_icmp_then_routed_https"
   echo "client_return_path=direct_l2_from_side_unverified"
   echo "fallback_policy=main"
-  echo "live_routing=$(if [ -f "$FULL_OWNED" ] && nft list table inet "$NFT" >/dev/null 2>&1; then echo installed; else echo absent; fi)"
+  echo "live_routing=$(if full_route_intact; then echo installed; else echo absent_or_partial; fi)"
   echo "dns_intercept_scope=client_queries_to_primary_only"
   echo "side_dns_reachable=$(if nslookup www.baidu.com "$(val bypass '')" >/dev/null 2>&1; then echo yes; else echo no; fi)"
   echo "active_policy_rule=$(ip -4 rule show | grep -c '^10201:' || true)"
@@ -619,6 +629,7 @@ status() {
   echo "side_egress_packets=$(nft list chain inet "$NFT" observe_to_side 2>/dev/null | awk '/counter packets/{for(i=1;i<=NF;i++)if($i=="packets"){print $(i+1);exit}}')"
   echo "network_event_handler=installed"
   echo "auto_safety_lock=client_end_to_end_unverified"
+  echo "route_integrity=$(if full_route_intact; then echo intact; else echo missing_or_partial; fi)"
   echo "client_test_safety_lock=none"
   echo "dhcp_router=$(uci -q get dhcp.lan.dhcp_option 2>/dev/null | tr '\n' ',' || true)"
   test_status
@@ -639,6 +650,16 @@ daemon() {
     if health; then failures=0; successes=$((successes+1)); else successes=0; failures=$((failures+1)); fi
     now=$(date +%s)
     current=$(cat "$STATE" 2>/dev/null || echo direct)
+    # fw4/netifd reload can remove nft chains while the daemon continues
+    # reporting bypass mode. Withdraw any partial policy and rebuild only
+    # after fresh consecutive successful health checks.
+    if [ "$current" = bypass ] && ! full_route_intact; then
+      say '检测到引流路由或 DNS 规则不完整，撤销自有残留并重新等待健康检查'
+      clear_route
+      current=direct
+      successes=0
+      last=$now
+    fi
     if [ "$current" = bypass ] && [ "$failures" -ge "$FAIL" ]; then
       clear_route; last=$now; say '旁路由健康检查连续失败，已回退小米直连'; notify '旁路由故障：已切换到小米直连'
     elif [ "$current" = direct ] && [ "$successes" -ge "$RECOVER" ] && [ $((now-last)) -ge "$HOLD" ]; then
