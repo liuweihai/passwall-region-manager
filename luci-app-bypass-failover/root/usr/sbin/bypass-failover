@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bypass Failover v1.4.0-rc1 (OpenWrt 24.10 / fw4) - IPv4 only.
+# Bypass Failover v1.5.0-rc1 (OpenWrt 24.10 / fw4) - IPv4 only.
 # Installed ONLY on the primary OpenWrt. Disabled by default.
 set -u
 CFG=/etc/config/bypass_failover
@@ -15,6 +15,7 @@ TEST_NFT=bypass_failover_test
 TEST_EXP=/tmp/bypass-failover-test.expires
 TEST_PID=/tmp/bypass-failover-test-watchdog.pid
 FULL_OWNED=/tmp/bypass-failover-route.owned
+FW4_COMMENT=bypass_failover_forward_owned
 REDIRECT_SAVE=/tmp/bypass-failover-send-redirects.old
 PROBE_TABLE=203
 PROBE_MARK=0x4248
@@ -290,8 +291,33 @@ route_guard() {
  fi
  echo 'routing_resource_conflict=none'
 }
+# Same-interface LAN -> LAN transit may be rejected by fw4 even when
+# policy routing selects the bypass. Insert one narrowly scoped accept into
+# fw4's real forward chain, not an independent base chain (where "accept"
+# would not override fw4 drops). Never allow arbitrary unmarked traffic.
+fw4_rule_handle() {
+ nft -a list chain inet fw4 forward 2>/dev/null |
+  awk -v tag="$FW4_COMMENT" '$0 ~ tag && $0 ~ /handle [0-9]+/ {print $NF}'
+}
+fw4_forward_install() {
+ nft list chain inet fw4 forward >/dev/null 2>&1 || {
+  say '缺少 fw4 forward 链，无法确保同 LAN 二次转发'; return 1;
+ }
+ [ -z "$(fw4_rule_handle)" ] || { say '已存在同名转发规则，拒绝重复安装'; return 1; }
+ nft insert rule inet fw4 forward iifname "$LAN" oifname "$LAN" meta mark "$MARK" counter accept comment "$FW4_COMMENT" ||
+  return 1
+ [ -n "$(fw4_rule_handle)" ]
+}
+fw4_forward_clear() {
+ for h in $(fw4_rule_handle); do
+  case "$h" in ''|*[!0-9]*) continue;; esac
+  nft delete rule inet fw4 forward handle "$h" 2>/dev/null ||
+   say "清理 fw4 自有转发规则失败 handle=$h"
+ done
+}
 clear_route() {
  if owned_full; then
+  fw4_forward_clear
   nft delete table inet "$NFT" 2>/dev/null || say '撤销自有 nft 表失败'
   while ip -4 rule show | grep -Eq '^10201:.*fwmark 0x4246 .*lookup 201'; do
    ip -4 rule del priority 10201 fwmark "$MARK" table "$TABLE" 2>/dev/null || break
@@ -321,6 +347,7 @@ full_route_intact() {
  nft list chain inet "$NFT" mark_in >/dev/null 2>&1 || return 1
  nft list chain inet "$NFT" dns_to_side >/dev/null 2>&1 || return 1
  nft list chain inet "$NFT" dns_return >/dev/null 2>&1 || return 1
+ [ -n "$(fw4_rule_handle)" ] || return 1
  ip -4 rule show | grep -Eq '^10201:.*fwmark 0x4246 .*lookup 201' || return 1
  ip -4 route show table "$TABLE" | grep -Fq "default via $(val bypass '') dev $(val lan br-lan)" || return 1
 }
@@ -376,6 +403,7 @@ table inet $NFT {
 EOF
   if ! nft list table inet "$NFT" >/dev/null 2>&1; then clear_route; return 1; fi
   if ! ip -4 rule add priority 10201 fwmark "$MARK" table "$TABLE"; then clear_route; return 1; fi
+  if ! fw4_forward_install; then clear_route; return 1; fi
   # Confirm marked client lookups select the actual side next hop before
   # reporting success. This is a routing assertion, not end-to-end proof.
   probe_client=$(val test_client '')
@@ -632,6 +660,7 @@ status() {
   echo "auto_safety_lock=client_end_to_end_unverified"
   echo "route_integrity=$(if full_route_intact; then echo intact; else echo missing_or_partial; fi)"
   echo "lan_forwarding=$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo unknown)"
+  echo "fw4_forward_rule=$(if [ -n "$(fw4_rule_handle)" ]; then echo installed; else echo absent; fi)"
   echo "client_test_safety_lock=none"
   echo "dhcp_router=$(uci -q get dhcp.lan.dhcp_option 2>/dev/null | tr '\n' ',' || true)"
   test_status
